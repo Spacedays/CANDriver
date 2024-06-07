@@ -58,7 +58,7 @@ class RxFromCAN : public CANDriverNotifications
 		void ReceivedVelocityQuad(const int Device, int Val)
 		{
 			Serial.printf("Rcvd int: %d from 0x%x\n", Val, Device);
-			ReceivedID = CANID_VELOCITY_BROADCAST;
+			ReceivedID = CANID_VELOCITY_QUAD;
 		};
 		
 		void ReceivedVelocitySingle(const int Device, int Val)
@@ -98,10 +98,17 @@ class RxFromCAN : public CANDriverNotifications
 RxFromCAN CANBroker;
 
 // The actual CAN bus class, which handles all communication.
-CANPingPong CANDevice(CreateCanLib(pinTx, pinRx), &CANBroker);
+CANDriver CANDevice(CreateCanLib(pinTx, pinRx), &CANBroker);
 
+#ifndef DEVICEID
+	#ifdef PICO
+	#define DEVICEID 1
+	#else
+	#define DEVICEID 0
+	#endif
+#endif
 
-int MyDeviceID=0;
+int MyDeviceID=DEVICEID;
 // HardwareSerial Serial3(PB11, PB10);   // uart3
 // HardwareSerial Serial1(PB7, PB6);  // uart1
 bool ledstatus;
@@ -118,18 +125,6 @@ void setup()
 	delay(3000);
 
 	uint8_t pinRx, pinTx;
-	// Create a random device ID to avoid conflicts on the CAN bus.
-	#ifdef ARDUINO_GENERIC_G431CBUX
-	MyDeviceID = analogRead(PC4) & 127;
-	#define LED_BUILTIN PC11
-	#elif defined(STM32G4xx)
-	//B-G431B-ESC1
-	MyDeviceID = analogRead(A_POTENTIOMETER) & 127;
-	#elif defined(PICO)
-	MyDeviceID = analogRead(26) & 127;
-	#else
-	MyDeviceID = random(1, 127);
-	#endif
 
 	pinMode(LED_BUILTIN, OUTPUT);
 	CANDevice.Init();
@@ -139,7 +134,7 @@ void setup()
 		Serial.println("Setting CAN bus termination via software not possible");
 	Serial.println("finished termination"); delay(200);
 
-	Serial.printf("Setup done, random device ID is %d\n", MyDeviceID);
+	Serial.printf("Setup done, device ID is %d\n", MyDeviceID);
 }
 
 void loop()
@@ -153,70 +148,6 @@ void loop()
 	static bool broadcasting;
 	#endif
 	static bool silent;
-
-	int RandWait = random(-500, 1000);
-
-	// Test of regular messages:
-	// What is sent next to the CAN bus depends on what was received last. 
-	// When a PING was received, send a PONG and vice versa.
-	// To get the whole thing started, a PONG is sent every 5s without having received anything.
-	// This is just for testing. Usually you would invoke actions for incomming messages
-	// directly in the broker class.
-	if (!silent) {	
-		if ((CANBroker.ReceivedID==CANID_PP_PING && LastAction+1000<millis()) || (LastAction+RandWait+7000<millis() && broadcasting) )
-		{
-			Serial.printf("!Sending Pong (%x)\n",PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_PONG));
-			CANDevice.CANSendText("Pong", PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_PONG));
-			LastAction=millis();
-
-			// Make sure we don't react twice to the same message.
-			CANBroker.ReceivedID = -1;
-		}
-		else if (CANBroker.ReceivedID==CANID_PP_PONG && LastAction+RandWait+1000<millis())
-		{
-			Serial.printf("!Sending Ping (%x)\n", PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_PING));
-			CANDevice.CANSendText("Ping", PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_PING));
-			LastAction=millis();
-
-			// Make sure we don't react twice to the same message.
-			CANBroker.ReceivedID = -1;		
-		}
-		else if (CANBroker.ReceivedID==CANID_PP_RTRINT && CANBroker.RTR)
-		{
-			Serial.println("!Sending int 1234");
-			// React to an RTR request message. The reply should be the number "1234". If something else is 
-			// received, check the byte order used by the devices!
-			CANBroker.RTR=false;
-			CANDevice.CANSendInt(1234, PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_RTRINT));
-
-			// Make sure we don't react twice to the same message.
-			CANBroker.ReceivedID = -1;		
-		}
-
-
-		// Every 8s just send a float value. This can be used to check if all devices on 
-		// the bus use the same floating point number representation and byte order.
-		if (LastFloatAction+RandWait+8000<millis() && broadcasting)
-		{
-			float NewVal = CANBroker.ReceivedFloatVal*2.5;
-			if (NewVal==0) NewVal=1.0f;
-			if (NewVal>1000000) NewVal=-1.0;
-			if(NewVal<-1000000) NewVal = 1.0;
-
-			Serial.printf("!SendingF: %.3f \n", NewVal);
-			CANDevice.CANSendFloat(NewVal, PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_FLOAT));
-			LastFloatAction=millis();
-		}
-
-		// Test of RTR messages
-		// Every 10s request an int value. Response should be the number 1234 in binary form.
-		if (LastRTR+RandWait+10000<millis() && broadcasting)
-		{
-			Serial.printf("!Request int\n");
-			CANDevice.CANRequestInt(MyDeviceID);
-			LastRTR=millis();
-		}
-	}
 
 	// Get some statistics on bus errors.
 	static int LastTxErrors=0;
@@ -265,44 +196,48 @@ void loop()
 					Serial.printf("Device ID is %d ; 0x%x ; ", MyDeviceID, MyDeviceID);
 					Serial.println(MyDeviceID, BIN);
 					Serial.println("Message IDs are:");
-					Serial.print("PING: "); Serial.print(PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_PING), BIN); Serial.printf(" ; 0x%x\n", PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_PING));
-					Serial.print("PONG: "); Serial.print(PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_PONG), BIN); Serial.printf(" ; 0x%x\n", PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_PONG));
-					Serial.print("FLOAT: "); Serial.print(PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_FLOAT), BIN); Serial.printf(" ; 0x%x\n", PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_FLOAT));
-					Serial.print("RTRINT: "); Serial.print(PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_RTRINT), BIN); Serial.printf(" ; 0x%x\n", PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_RTRINT));
+					Serial.print("H HEARTBEAT: "); Serial.print(CD_MAKE_CAN_ID(MyDeviceID, CANID_HEARTBEAT), BIN); Serial.printf(" ; 0x%x\n", CD_MAKE_CAN_ID(MyDeviceID, CANID_HEARTBEAT));
+					Serial.print("R HEARTBEAT RTR: "); Serial.print(CD_MAKE_CAN_ID(MyDeviceID, CANID_HEARTBEAT), BIN); Serial.printf(" ; 0x%x\n", CD_MAKE_CAN_ID(MyDeviceID, CANID_HEARTBEAT));
+					Serial.print("V VELOCITY QUAD: "); Serial.print(CD_MAKE_CAN_ID(MyDeviceID, CANID_VELOCITY_QUAD), BIN); Serial.printf(" ; 0x%x\n", CD_MAKE_CAN_ID(MyDeviceID, CANID_VELOCITY_QUAD));
+					Serial.print("E VELOCITY SINGLE: "); Serial.print(CD_MAKE_CAN_ID(MyDeviceID, CANID_VELOCITY_SINGLE), BIN); Serial.printf(" ; 0x%x\n", CD_MAKE_CAN_ID(MyDeviceID, CANID_VELOCITY_SINGLE));
+					Serial.print("C SPEED SCALE (float): "); Serial.print(CD_MAKE_CAN_ID(MyDeviceID, CANID_SPEED_SCALE), BIN); Serial.printf(" ; 0x%x\n", CD_MAKE_CAN_ID(MyDeviceID, CANID_SPEED_SCALE));
+					Serial.print("S SFOC: "); Serial.print(CD_MAKE_CAN_ID(MyDeviceID, CANID_SFOC), BIN); Serial.printf(" ; 0x%x\n", CD_MAKE_CAN_ID(MyDeviceID, CANID_SFOC));
+					Serial.print("M MISC: "); Serial.print(CD_MAKE_CAN_ID(MyDeviceID, CANID_MISC), BIN); Serial.printf(" ; 0x%x\n", CD_MAKE_CAN_ID(MyDeviceID, CANID_MISC));
 					Serial.println("Type any non-cmd character for command options.");
 					break;
-				case 'P':
-					Serial.printf("Sending Ping (ID 0x%x)\n", PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_PING));
-					CANDevice.CANSendText("Ping", PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_PING));
-					break;
-				case 'O':
-					Serial.printf("Sending Pong (ID 0x%x)\n", PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_PONG));
-					CANDevice.CANSendText("Pong", PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_PONG));
-					break;
-				case 'I':
-					Serial.println("Sending int 2222");
-					CANBroker.RTR=false;
-					CANDevice.CANSendInt(2222, PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_RTRINT));
-					break;
-				case 'F':
-					Serial.printf("SendingF: %.3f (ID 0x%x)\n", FLOATVAL, PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_FLOAT));
-					CANDevice.CANSendFloat(FLOATVAL, PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_FLOAT));
+				case 'H':
+					Serial.printf("Sending Heartbeat (ID 0x%x)\n", CD_MAKE_CAN_ID(MyDeviceID, CANID_HEARTBEAT));
+					CANDevice.CANSendInt(MyDeviceID, 0);
 					break;
 				case 'R':
-					Serial.printf("Request int (ID 0x%x)\n", PP_MAKE_CAN_ID(MyDeviceID, CANID_PP_RTRINT));
-					CANDevice.CANRequestInt(MyDeviceID);
+					Serial.printf("Request heartbeat (ID 0x%x)\n", CD_MAKE_CAN_ID(MyDeviceID, CANID_HEARTBEAT));
+					CANDevice.RequestHeartbeat(MyDeviceID);
 					break;
-				case 'B':
-					broadcasting = !broadcasting;
-					Serial.printf("Toggled Broadcasting - %d\n", broadcasting);
+				case 'V':
+					Serial.println("Sending Velocity Quad (-127 to 127) for 32b");
+					CANBroker.RTR=false;
+					int quad = B10000001 | B01111111 <<8 | B10100011 <<16 | B01011101 <<24; 	// 93 -93 127 -127
+					CANDevice.CANSendInt(quad, CD_MAKE_CAN_ID(MyDeviceID, CANID_VELOCITY_QUAD));
+					break;
+				case 'E':
+					Serial.println("Sending Velocity Single -528 ");
+					CANDevice.CANSendInt(-528, CD_MAKE_CAN_ID(MyDeviceID, CANID_VELOCITY_SINGLE));
+					break;
+				case 'C':
+					Serial.printf("Sending Speed Scale: %.3f (ID 0x%x)\n", FLOATVAL, CD_MAKE_CAN_ID(MyDeviceID, CANID_SPEED_SCALE));
+					CANDevice.CANSendFloat(FLOATVAL, CD_MAKE_CAN_ID(MyDeviceID, CANID_SPEED_SCALE));
 					break;
 				case 'S':
-					silent = !silent;
-					Serial.printf("Toggled Silence - %d\n", silent);
-					CANBroker.ReceivedID = -1;	// ignore response to last received message
+					Serial.printf("Sending SFOC (ID 0x%x)\n", CD_MAKE_CAN_ID(MyDeviceID, CANID_SFOC));
+					CANDevice.CANSendText("Pong", CD_MAKE_CAN_ID(MyDeviceID, CANID_SFOC));
+					break;
+				case 'M':
+					Serial.printf("Sending Misc. (ID 0x%x)\n", CD_MAKE_CAN_ID(MyDeviceID, CANID_MISC));
+					CANDevice.CANSendText("Misc. Msg", CD_MAKE_CAN_ID(MyDeviceID, CANID_MISC));
 					break;
 				case 'D':
 					MyDeviceID++;
+					if (MyDeviceID > 5) MyDeviceID = 1;
 					Serial.printf("Bumped ID - %d\n", MyDeviceID);
 					break;
 				default:

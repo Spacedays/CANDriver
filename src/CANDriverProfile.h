@@ -2,7 +2,7 @@
 
 #define CANID_HEARTBEAT    1  //	RTR used to request detailed hearbeat/status from driver or controller. #LATER: determine contents and DLC
 // #define CANID_RTRHEARTBEAT 2 	// 
-#define CANID_VELOCITY_BROADCAST    4   //
+#define CANID_VELOCITY_QUAD    4   //
 #define CANID_VELOCITY_SINGLE   5   //
 #define CANID_SPEED_SCALE   6       // Message is a floating point value that represents the scaling from {#TODO}-bit to {#TODO rad or cm}/s 
 #define CANID_SFOC	7
@@ -77,7 +77,7 @@ class CANDriver : public SimpleCANProfile {
 						pRxCommands->ReceivedHeartbeat(Device, val);
 					}
 					break;
-				case CANID_VELOCITY_BROADCAST:
+				case CANID_VELOCITY_QUAD:
 					int val = CANGetInt(rxData);
 					pRxCommands->ReceivedVelocityQuad(Device, val);
 					break;
@@ -98,7 +98,7 @@ class CANDriver : public SimpleCANProfile {
 					pRxCommands->ReceivedMisc(Device, Str);
 					break;
 				default:
-					int val = CANGetInt(rxData);
+					val = CANGetInt(rxData);
 
 					char buf [32];
 					char buf2 [64];
