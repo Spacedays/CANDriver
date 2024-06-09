@@ -19,20 +19,67 @@
 
 // The CAN ID consists of the 7-bit mesage ID followed by the 4-bit device ID.
 // The device ID is hard-coded into each controller, so arbitration is not currently handled.
-#define CD_MAKE_CAN_ID(Device, Message)     ((Message<<4) | CanID) 
-#define CD_GET_MESSAGE_ID(CanID)            (CanID >> 4)	// 
+#define CD_MAKE_CAN_ID(Device, Message)     ((Message<<4) | Device)
+#define CD_GET_MESSAGE_ID(CanID)            (CanID >> 4)
 #define CD_GET_DEVICE_ID(CanID)             (CanID & 0xf)      // Max ID = 127!
 
-class CANDriverNotifications {
-    public:
-        virtual void ReceivedHeartbeat(const int Device, int val)=0;
-		  virtual void ReceivedHeartbeatRTR(const int Device)=0;
-        virtual void ReceivedVelocityQuad(const int Device, int val)=0;			// bitmask based on driver ID - mask = DEVID*DLC
-		  virtual void ReceivedVelocitySingle(const int Device, int val)=0;
-        virtual void ReceivedSpeedScale(const int Device, float val)=0;
-        virtual void ReceivedSFOCCmd(const int Device, const char* pText)=0;
-		  virtual void ReceivedMisc(const int Device, const char* pText)=0;
-      //   virtual void ReceivedRequestInt(const int Device)=0;
+class CANDriverNotifications
+{
+	public:
+		CANDriverNotifications() : ReceivedID(-1), RTR(false), ReceivedFloatVal(1.0f){};
+		virtual void ReceivedHeartbeat(const int Device, int Val)=0;
+		// Brain:	Refresh driver timeout;
+		// Driver:	Refresh driver timeout (shorter than Brain's);
+
+		virtual void ReceivedHeartbeatRTR(const int Device)=0;
+		// Brain:	Send driver settings
+		// Driver:	Report status
+      
+		virtual void ReceivedVelocityQuad(const int Device, int DLC, int quadval)=0;			// bitmask based on driver ID - mask = DEVID*DLC
+		// Brain: ???
+		// Driver: update current value... and ack?
+
+		void ReceivedVelocitySingle(const int Device, int Val);
+		virtual void ReceivedSpeedScale(const int Device, float Val)=0;
+		// Brain:	feed back the speed scale to everyone...? or just dont filter it out? Maybe use special ID bit for broadcast
+		// Driver:	update current speed scale... and ack?
+
+		void ReceivedSFOCCmd(const int Device, const char* pText);	//#LATER
+		// Brain:	TBD? compare motor config with expected config?
+		// Driver:	apply config
+		
+		void ReceivedMisc(const int Device, const char* pText);	//#LATER
+		// Brain:	store received info
+		// Driver:	respond with requested info
+
+		int ReceivedID;
+		bool RTR = true;
+		float ReceivedFloatVal;
+};
+
+void CANDriverNotifications::ReceivedVelocitySingle(const int Device, int Val)
+		{
+			Serial.printf("Rcvd int: %d from 0x%x\n", Val, Device);
+			ReceivedID = CANID_VELOCITY_SINGLE;
+		};
+		
+// void ReceivedSpeedScale(const int Device, const float Val)
+// {
+// 	Serial.printf("Rcvd float: %.3f from 0x%x\n", Val, Device);
+// 	ReceivedFloatVal = Val;
+// 	ReceivedID = CANID_SPEED_SCALE;
+// };
+
+void CANDriverNotifications::ReceivedSFOCCmd(const int Device, const char* pText)
+{
+	Serial.printf("Received: %s from 0x%x\n", pText, Device);
+	ReceivedID = CANID_SFOC;
+};
+
+void CANDriverNotifications::ReceivedMisc(const int Device, const char* pText)
+{
+	Serial.printf("Received: %s from 0x%x\n", pText, Device);
+	ReceivedID = CANID_MISC;
 };
 
 
@@ -68,21 +115,22 @@ class CANDriver : public SimpleCANProfile {
 			// // Serial.printf("\nR~ID:%32s (0x%x) DLC=%d Remote?%d EFF?%d\n data=%64s\n", buf, rxHeader.Identifier, rxHeader.DataLength, rxHeader.RxFrameType, rxHeader.IdType, (rxHeader.RxFrameType ? "~" : buf2)); //rxHeader.RxFrameType ? "~": buf2);
 			switch(CD_GET_MESSAGE_ID(rxHeader.Identifier))
 			{
+				int val;
 				case CANID_HEARTBEAT:
 					if (rxHeader.RxFrameType==CAN_REMOTE_FRAME)
 						pRxCommands->ReceivedHeartbeatRTR(Device);
 					else
 					{
-						int val = CANGetInt(rxData);
+						val = CANGetInt(rxData);
 						pRxCommands->ReceivedHeartbeat(Device, val);
 					}
 					break;
 				case CANID_VELOCITY_QUAD:
-					int val = CANGetInt(rxData);
-					pRxCommands->ReceivedVelocityQuad(Device, val);
+					val = CANGetInt(rxData);
+					pRxCommands->ReceivedVelocityQuad(Device, rxHeader.DataLength, val);
 					break;
 				case CANID_VELOCITY_SINGLE:
-					int val = CANGetInt(rxData);
+					val = CANGetInt(rxData);
 					pRxCommands->ReceivedVelocitySingle(Device, val);
 					break;
 				case CANID_SPEED_SCALE:
@@ -112,4 +160,4 @@ class CANDriver : public SimpleCANProfile {
 
 	private:
 		CANDriverNotifications* pRxCommands;
-}
+};

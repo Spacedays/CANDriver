@@ -1,3 +1,5 @@
+#ifndef CANDRIVER_CPP
+#define CANDRIVER_CPP
 /*
 
     Demo code for portable CAN bus library
@@ -7,17 +9,8 @@
 #include <Arduino.h>
 #include <math.h>
 
-#ifdef ARDUINO_GENERIC_G431CBUX
-#warning GENERIC G431 - PA12-CANTX PA11-CANRX PC11-LED_BUILTIN 
-
-#define LED_BUILTIN PC11
-uint8_t pinTx = PA12;
-uint8_t pinRx = PA11;
-#elif defined(STM32G4xx)
-#warning B-G431B-ESC1
-uint8_t pinTx = A_CAN_TX;
-uint8_t pinRx = A_CAN_RX;
-#elif defined(PICO)
+#ifdef PICO
+#warning PICO - 17-CANTX 16-CANRX 
 uint8_t pinTx = 17;
 uint8_t pinRx = 16;
 #else
@@ -25,10 +18,25 @@ uint8_t pinTx = -1;
 uint8_t pinRx = -1;
 #endif
 
+#ifndef DEVICEID
+	#ifdef PICO
+	#define DEVICEID 1
+	#else
+	#define DEVICEID 0
+	#endif
+#endif
+
+int MyDeviceID=DEVICEID;
 
 #include "SimpleCAN.h"
 #include "CANDriverProfile.h"
 
+
+// Function to sign-extend an integer up to 32 bits
+int32_t signExtend(int32_t value, int bitLength) {
+    int shift = 32 - bitLength;
+    return (value << shift) >> shift;
+}
 
 // Broker class which handles information received from CAN bus.
 // These functions are called from within CANPingPong::Can1->Loop() whenever there are new CAN messages in the queue.
@@ -39,12 +47,13 @@ uint8_t pinRx = -1;
 // can be used on both sides of the CAN bus without having to include all the stuff which may be required on one side only.
 class RxFromCAN : public CANDriverNotifications
 {
-    public:
-		RxFromCAN() : ReceivedID(-1), RTR(false) , ReceivedFloatVal(1.0f){};
+	public:
+		// RxFromCAN() : CANDriverNotifications(){};
+		// RxFromCAN() : CANDriverNotifications((-1), RTR(false), ReceivedFloatVal(1.0f){};
 
 		void ReceivedHeartbeat(const int Device, int Val)
 		{
-			Serial.printf("Rcvd int: %d from 0x%x\n", Val, Device);
+			Serial.printf("Rcvd Heartbeat: %d from 0x%x\n", Val, Device);
 			ReceivedID = CANID_HEARTBEAT;
 		};
 
@@ -55,17 +64,25 @@ class RxFromCAN : public CANDriverNotifications
 			RTR = true;
 		};
 		
-		void ReceivedVelocityQuad(const int Device, int Val)
+		void ReceivedVelocityQuad(const int Device, int DLC, int quadval)	// bitmask based on driver ID - mask = DEVID*DLC
 		{
-			Serial.printf("Rcvd int: %d from 0x%x\n", Val, Device);
+			Serial.printf("Rcvd quad: 0x%x from 0x%x\n", quadval, Device);
+			uint bitlength = DLC*2;	// length in bits of each number. data len = 8xDLC --> mask len = data len/4 = 2xDLC
+			uint neg_mask = 1<<(bitlength-1);	
+			int mask = (1<<bitlength)-1;
+			int val = (quadval >> (bitlength*MyDeviceID)) & mask;	// extract int
+			val = signExtend(val, bitlength);						// sign extend
+			Serial.printf("val%d: %d ", MyDeviceID, val);
+			Serial.print("\n");
+			
 			ReceivedID = CANID_VELOCITY_QUAD;
 		};
 		
-		void ReceivedVelocitySingle(const int Device, int Val)
-		{
-			Serial.printf("Rcvd int: %d from 0x%x\n", Val, Device);
-			ReceivedID = CANID_VELOCITY_SINGLE;
-		};
+		// void ReceivedVelocitySingle(const int Device, int Val)
+		// {
+		// 	Serial.printf("Rcvd int: %d from 0x%x\n", Val, Device);
+		// 	ReceivedID = CANID_VELOCITY_SINGLE;
+		// };
 
 		void ReceivedSpeedScale(const int Device, const float Val)
 		{
@@ -74,21 +91,21 @@ class RxFromCAN : public CANDriverNotifications
 			ReceivedID = CANID_SPEED_SCALE;
 		};
 
-		void ReceivedSFOCCmd(const int Device, const char* pText)
-		{
-			Serial.printf("Received: %s from 0x%x\n", pText, Device);
-			ReceivedID = CANID_SFOC;
-		};
+		// void ReceivedSFOCCmd(const int Device, const char* pText)
+		// {
+		// 	Serial.printf("Received: %s from 0x%x\n", pText, Device);
+		// 	ReceivedID = CANID_SFOC;
+		// };
 
-		void ReceivedMisc(const int Device, const char* pText)
-		{
-			Serial.printf("Received: %s from 0x%x\n", pText, Device);
- 			ReceivedID = CANID_MISC;
-		};
+		// void ReceivedMisc(const int Device, const char* pText)
+		// {
+		// 	Serial.printf("Received: %s from 0x%x\n", pText, Device);
+ 		// 	ReceivedID = CANID_MISC;
+		// };
 
-		int ReceivedID;		
-		bool RTR = true;
-		float ReceivedFloatVal;
+		// int ReceivedID;		
+		// bool RTR = true;
+		// float ReceivedFloatVal;
 };
 
 
@@ -100,15 +117,6 @@ RxFromCAN CANBroker;
 // The actual CAN bus class, which handles all communication.
 CANDriver CANDevice(CreateCanLib(pinTx, pinRx), &CANBroker);
 
-#ifndef DEVICEID
-	#ifdef PICO
-	#define DEVICEID 1
-	#else
-	#define DEVICEID 0
-	#endif
-#endif
-
-int MyDeviceID=DEVICEID;
 // HardwareSerial Serial3(PB11, PB10);   // uart3
 // HardwareSerial Serial1(PB7, PB6);  // uart1
 bool ledstatus;
@@ -178,6 +186,7 @@ void loop()
 	// serial feedback
 	if (Serial.available())
 		{
+			uint64_t quad;
 			String s;
 			char c;
 			s = Serial.readString();
@@ -207,7 +216,7 @@ void loop()
 					break;
 				case 'H':
 					Serial.printf("Sending Heartbeat (ID 0x%x)\n", CD_MAKE_CAN_ID(MyDeviceID, CANID_HEARTBEAT));
-					CANDevice.CANSendInt(MyDeviceID, 0);
+					CANDevice.CANSendInt(1, CD_MAKE_CAN_ID(MyDeviceID, CANID_HEARTBEAT));
 					break;
 				case 'R':
 					Serial.printf("Request heartbeat (ID 0x%x)\n", CD_MAKE_CAN_ID(MyDeviceID, CANID_HEARTBEAT));
@@ -216,7 +225,8 @@ void loop()
 				case 'V':
 					Serial.println("Sending Velocity Quad (-127 to 127) for 32b");
 					CANBroker.RTR=false;
-					int quad = B10000001 | B01111111 <<8 | B10100011 <<16 | B01011101 <<24; 	// 93 -93 127 -127
+					quad = 0b01111111 << 24 | 0b10000001 <<16 | 0b01011101 <<8 | 0b10100011; 	// 127 -127 93 -93
+					// quad = (127 << 24) & (-127 << 16) & (93 << 8) & (-93);
 					CANDevice.CANSendInt(quad, CD_MAKE_CAN_ID(MyDeviceID, CANID_VELOCITY_QUAD));
 					break;
 				case 'E':
@@ -248,3 +258,5 @@ void loop()
 	// Update message queues.
 	CANDevice.Can1->Loop();
 }
+
+#endif
