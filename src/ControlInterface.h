@@ -2,6 +2,11 @@
 #define CONTROL_INTERFACE_H
 #include <MsgPack.h>
 
+#ifdef CONTROL_TEST
+extern void setup();
+extern void loop();
+#endif
+
 struct ControlPacket
 {
     bool a;
@@ -9,8 +14,17 @@ struct ControlPacket
     int ljx;
     int ljy;
     MsgPack::str_t s;
-    MSGPACK_DEFINE(a,b,ljx,ljy,s); // conversion to array -> [a, b, ljx, ljy] 
+    MSGPACK_DEFINE(a,b,ljx,ljy,s); // conversion to array -> [a, b, ljx, ljy, s] 
 };
+
+void PrintPacket(ControlPacket* cmd);
+
+// struct JoyPacket
+// {
+//     int jx;
+//     int jy;
+//     MSGPACK_DEFINE(jx,jy); // conversion to array -> [a, b, ljx, ljy,s] 
+// };
 
 struct MotionVector
 {
@@ -25,6 +39,6 @@ struct MotionVector
     MSGPACK_DEFINE(vFL,vFR,vBL,vBR,aFL,aFR,aBL,aBR);
 };
 
-MotionVector ProcessPacket(ControlPacket);
+// MotionVector ProcessPacket(ControlPacket);
 
  #endif
