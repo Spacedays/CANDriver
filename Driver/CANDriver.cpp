@@ -1,10 +1,7 @@
 #ifndef CANDRIVER_CPP
 #define CANDRIVER_CPP
 /*
-
-    Demo code for portable CAN bus library
-   
-	(c) 2022 Christian Schmidmer, use is subject to MIT license
+CAN-Bus controlled driver
 */
 #include <Arduino.h>
 #include <math.h>

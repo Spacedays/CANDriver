@@ -1,11 +1,17 @@
+/*
+ *** CANDriver - Brain ***
+ Dual-core controller for RPi =Serial=> Brain =CAN=> Drivers comms
+
+ Core 0:
+  Serial Comms + main rover state
+ Core 1:
+  CAN Comms
+*/
+
+
 #ifndef CANDRIVER_CPP
 #define CANDRIVER_CPP
-/*
 
-    Demo code for portable CAN bus library
-   
-	(c) 2022 Christian Schmidmer, use is subject to MIT license
-*/
 #include <Arduino.h>
 #include <math.h>
 
@@ -31,7 +37,7 @@ int MyDeviceID=DEVICEID;
 #include "SimpleCAN.h"
 #include "CANDriverProfile.h"
 #include "pico/util/queue.h"
-#warning Q
+#warning USING QUEUES
 
 // Function to sign-extend an integer up to 32 bits
 int32_t signExtend(int32_t value, int bitLength) {
@@ -137,6 +143,7 @@ CANDriver CANDevice(CreateCanLib(pinTx, pinRx), &CANBroker);
 
 
 queue_t sendToCAN;
+queue_t receivedCAN;
 
 bool ledstatus;
 uint32_t led_time = 0;
