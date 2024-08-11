@@ -5,13 +5,16 @@
 #include <Arduino.h>
 // #include <MsgPacketizer.h>
 // ------------------- Test 1: MsgPack Control Packet -------------------
+// #define CONTROLTEST
+// #define PRINTRXPACKET
 
 #ifdef CONTROLTEST
 
 MsgPack::Unpacker unpacker;
 MsgPack::Packer packer;
 
-ControlPacket cmd = ControlPacket();
+ControlPacket cmd = { false, false, 125, 126, "Hello, World!"};
+
 char cbuff[64];
 char c = '\0';
 void setup()
@@ -21,78 +24,95 @@ void setup()
     Serial.println(F("Setup complete."));
 }
 
+bool blinkstate;
 bool read_success;
 byte msgdata[128]; // #TODO: see if this is enough?
 u8_t i = 0;
 uint msglen = 0;
-long lasttime = 0;
+u8_t blinkduration = 200;
+u32_t lastupdate = 0;
+u32_t blinktime = 0;
 void loop()
 {
-    // Read characters until '\n'. MsgPack messages will be preceeded by "\n~[msg_len]", then followed by the binary data
-    while (c != '\n' && i < 64)
+    // Read characters until '\n'. MsgPack messages will be preceeded by "\n~[msg_len]\n", then followed by the binary data
+    while (Serial.available() && c != '\n' && i < 64)
     {
         c = Serial.read();
         memcpy(&cbuff[i], &c, 1);
         i++;
     }
+      // Received data
     if (i > 0)
     {
+        blinkduration = (blinkduration == 200 ? 500 : 200);
         // Received String - do something with it
-        // ;   //#TODO
+        Serial.print("-\nReceived String: ");
+        Serial.println(cbuff);
         i = 0;
-    }
-    else    // No message
-    {
-        return;
-    }
-    if (c == '\n')
-    {
-        c = Serial.read();
-        if (c == '~')
+        if (c == '\n')
         {
-            // MessagePack message; Get Length of message and receive bytes
-            msglen = Serial.parseInt();
-            if (!msglen)
-                return;
-            Serial.readBytes(msgdata, msglen);
-            if (!unpacker.feed(msgdata, msglen))
-                return;
-            if (unpacker.isArray()) //#TODO: define EXT array type for various control packets
-                Serial.println(F("Unpacking array to object"));
+            c = Serial.read();
+            if (c == '~')
+            {
+                // MessagePack message; Get Length of message and receive bytes
+                msglen = Serial.parseInt(); // terminates on reading a non-digit
+                Serial.read();  // dispose of non-digit char
+                if (!msglen)
+                    return;
+                Serial.readBytes(msgdata, msglen);
+                if (!unpacker.feed(msgdata, msglen))
+                    return;
+                if (unpacker.isArray()) // #TODO: define EXT array type for various control packets
+                    Serial.println(F("-\nUnpacking array to object"));
                 if (unpacker.deserialize(cmd))
+                    #ifdef PRINTRXPACKET
                     PrintPacket(&cmd);
+                    #else
+                    Serial.println("-\nReceived packet");
+                    #endif
                 else
-                    Serial.println("Failed to deserialize");
+                    Serial.println("-\nFailed to deserialize");
 
-            if (unpacker.isUInt8()) //#TODO: look for index before array to define message type? or find a way to do ext type
-                i = unpacker.unpackUInt8();
-            i=0;
+                if (unpacker.isUInt8()) // #TODO: look for index before array to define message type? or find a way to do ext type
+                    i = unpacker.unpackUInt8();
+                i = 0;
+            }
+            else
+            {
+                // Message is a string; Reset and continue reading characters
+                cbuff[i] = c;
+                i++;
+            }
         }
         else
         {
-            // Message is a string; Reset and continue reading characters
-            cbuff[i] = c;
-            i++;
+            // #TODO: Reached end of buffer while reading string; process part of string message
+            Serial.print("Received partial string with length ");
+            Serial.println(i);
+            i = 0;
         }
-    } else {
-        //#TODO: Reached end of buffer while reading string; process part of string message
-        Serial.print("Received partial string with length ");
-        Serial.println(i);
-        i=0;
     }
-    if (micros() - lasttime > 5000)
+    if (millis() - lastupdate > 5000)
     {
-        Serial.print(F("Sending control packet:~"));
+        // packer.to_array(cmd.a, cmd.b, cmd.ljx, cmd.ljy, cmd.s);
         packer.serialize(cmd);
+        Serial.print(F("Sending control packet:\n~"));
         Serial.print(packer.size());
         Serial.print('~');
-        Serial.write(* packer.data());
-        Serial.println(F("~Finished writing control packet!"));
+        Serial.write((char*)packer.data());
+        packer.clear();
+        Serial.println(F("-\nFinished writing control packet!"));
+        lastupdate = millis();
     }
-    // bytes = Serial.available();
+    if (millis() - blinktime > 200)
+    {
+        digitalWrite(LED_BUILTIN, blinkstate);
+        blinkstate = !blinkstate;
+        blinktime = millis();
+    }
 }
 
-void PrintPacket(ControlPacket* cmd)
+void PrintPacket(ControlPacket *cmd)
 {
     Serial.print(cmd->a);
     Serial.print(" ");
@@ -102,7 +122,6 @@ void PrintPacket(ControlPacket* cmd)
     Serial.println(cmd->ljy);
     Serial.println(cmd->s);
 }
-
 
 // MsgPack::map_t<String, int> mp {{"a", 1}, {"b", 2}, {"c", 3}};  // json {{"a", 1}, {"b", 2}, {"c", 3}}
 
