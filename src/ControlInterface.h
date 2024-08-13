@@ -7,23 +7,26 @@ extern void setup();
 extern void loop();
 #endif
 
+#define PACKETDELIM "\n~"
+#define LEN_SEP "~"
+
 struct ControlPacket
 {
     bool a;
     bool b;
-    int ljx;
-    int ljy;
-    MsgPack::str_t s;
-    MSGPACK_DEFINE(a,b,ljx,ljy,s); // conversion to array -> [a, b, ljx, ljy, s] 
+    int ljx = 125;
+    int ljy = 126;
+    MsgPack::str_t s = "Hello, Pi!";
+    MSGPACK_DEFINE(a, b, ljx, ljy, s); // conversion to array -> [a, b, ljx, ljy, s]
 };
 
-void PrintPacket(ControlPacket* cmd);
+void PrintPacket(ControlPacket *cmd);
 
 // struct JoyPacket
 // {
 //     int jx;
 //     int jy;
-//     MSGPACK_DEFINE(jx,jy); // conversion to array -> [a, b, ljx, ljy,s] 
+//     MSGPACK_DEFINE(jx,jy); // conversion to array -> [a, b, ljx, ljy,s]
 // };
 
 struct MotionVector
@@ -36,9 +39,9 @@ struct MotionVector
     int aFR;
     int aBL;
     int aBR;
-    MSGPACK_DEFINE(vFL,vFR,vBL,vBR,aFL,aFR,aBL,aBR);
+    MSGPACK_DEFINE(vFL, vFR, vBL, vBR, aFL, aFR, aBL, aBR);
 };
 
 // MotionVector ProcessPacket(ControlPacket);
 
- #endif
+#endif
