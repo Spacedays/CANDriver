@@ -90,74 +90,83 @@ class CANDriver : public SimpleCANProfile {
 			pRxCommands = _pRxCommands;
 		}
 
-	void  RequestHeartbeat(int DeviceID)
+		void RequestHeartbeat(int DeviceID)
 		{
 			Can1->RequestMessage(2, CD_MAKE_CAN_ID(DeviceID, CANID_HEARTBEAT));            
 		}
 
-		void HandleCanMessage(const SimpleCanRxHeader rxHeader, const uint8_t *rxData)
-		{
-			// Serial.println("@");
+		void SendVelocityQuad(const int8_t vFL, const int8_t vFR, const int8_t vBL, const int8_t vBR);
 
-			#define MAX_STRLEN  16
-			
-			char Str[MAX_STRLEN];
-			// float val=0;
-			int Device = CD_GET_DEVICE_ID(rxHeader.Identifier);
-			// char buf [32];
-			// char buf2 [64];
-			// utoa(rxHeader.Identifier,buf,2);
-			// // BitStr(rxHeader.Identifier, buf, 32, (Msg.EFF ? 29 : 11), ' ');	// excess bits generated from utoa for some reason? extra '100' at the MSB 
-
-			// memcpy(&val, rxData, rxHeader.DataLength);
-			// // utoa(val, buf2,2);   // Data conversion to string - this doesn't work for some reason
-			// // Serial.printf("R~ID:%32s (0x%x) DLC=%d Remote?%d EFF?%d\n", buf, rxHeader.Identifier, rxHeader.DataLength, rxHeader.RxFrameType, rxHeader.IdType);
-			// // Serial.printf("\nR~ID:%32s (0x%x) DLC=%d Remote?%d EFF?%d\n data=%64s\n", buf, rxHeader.Identifier, rxHeader.DataLength, rxHeader.RxFrameType, rxHeader.IdType, (rxHeader.RxFrameType ? "~" : buf2)); //rxHeader.RxFrameType ? "~": buf2);
-			switch(CD_GET_MESSAGE_ID(rxHeader.Identifier))
-			{
-				int val;
-				case CANID_HEARTBEAT:
-					if (rxHeader.RxFrameType==CAN_REMOTE_FRAME)
-						pRxCommands->ReceivedHeartbeatRTR(Device);
-					else
-					{
-						val = CANGetInt(rxData);
-						pRxCommands->ReceivedHeartbeat(Device, val);
-					}
-					break;
-				case CANID_VELOCITY_QUAD:
-					val = CANGetInt(rxData);
-					pRxCommands->ReceivedVelocityQuad(Device, rxHeader.DataLength, val);
-					break;
-				case CANID_VELOCITY_SINGLE:
-					val = CANGetInt(rxData);
-					pRxCommands->ReceivedVelocitySingle(Device, val);
-					break;
-				case CANID_SPEED_SCALE:
-					val = CANGetFloat(rxData);
-					pRxCommands->ReceivedSpeedScale(Device, val);
-					break;
-				case CANID_SFOC:
-					CANGetString(rxData, Str, min(MAX_STRLEN, (int)rxHeader.DataLength));
-					pRxCommands->ReceivedSFOCCmd(Device, Str);
-					break;
-				case CANID_MISC:
-					CANGetString(rxData, Str, min(MAX_STRLEN-1, (int)rxHeader.DataLength));
-					pRxCommands->ReceivedMisc(Device, Str);
-					break;
-				default:
-					val = CANGetInt(rxData);
-
-					char buf [32];
-					char buf2 [64];
-
-					utoa(rxHeader.Identifier,buf,2);
-					utoa(val,buf2,2);
-
-					Serial.printf("R~ID:%32s DLC=%d Remote?%d EFF?%d\n data=%64s\n\n", buf, rxHeader.DataLength, rxHeader.RxFrameType, rxHeader.IdType, (rxHeader.RxFrameType ? "~" : buf2));
-			}
-		}
+		void HandleCanMessage(const SimpleCanRxHeader rxHeader, const uint8_t *rxData);
 
 	private:
 		CANDriverNotifications* pRxCommands;
+};
+
+void CANDriver::SendVelocityQuad(const int8_t vFL, const int8_t vFR, const int8_t vBL, const int8_t vBR)	// IDs 1, 2, 3, 4
+{
+	u32_t quad = vFL | vFR << 8 | vBL << 16 | vBR << 24; // 127 -127 93 -93
+};
+
+void CANDriver::HandleCanMessage(const SimpleCanRxHeader rxHeader, const uint8_t *rxData)
+{
+	// Serial.println("@");
+
+	#define MAX_STRLEN  16
+	
+	char Str[MAX_STRLEN];
+	// float val=0;
+	int Device = CD_GET_DEVICE_ID(rxHeader.Identifier);
+	// char buf [32];
+	// char buf2 [64];
+	// utoa(rxHeader.Identifier,buf,2);
+	// // BitStr(rxHeader.Identifier, buf, 32, (Msg.EFF ? 29 : 11), ' ');	// excess bits generated from utoa for some reason? extra '100' at the MSB 
+
+	// memcpy(&val, rxData, rxHeader.DataLength);
+	// // utoa(val, buf2,2);   // Data conversion to string - this doesn't work for some reason
+	// // Serial.printf("R~ID:%32s (0x%x) DLC=%d Remote?%d EFF?%d\n", buf, rxHeader.Identifier, rxHeader.DataLength, rxHeader.RxFrameType, rxHeader.IdType);
+	// // Serial.printf("\nR~ID:%32s (0x%x) DLC=%d Remote?%d EFF?%d\n data=%64s\n", buf, rxHeader.Identifier, rxHeader.DataLength, rxHeader.RxFrameType, rxHeader.IdType, (rxHeader.RxFrameType ? "~" : buf2)); //rxHeader.RxFrameType ? "~": buf2);
+	switch(CD_GET_MESSAGE_ID(rxHeader.Identifier))
+	{
+		int val;
+		case CANID_HEARTBEAT:
+			if (rxHeader.RxFrameType==CAN_REMOTE_FRAME)
+				pRxCommands->ReceivedHeartbeatRTR(Device);
+			else
+			{
+				val = CANGetInt(rxData);
+				pRxCommands->ReceivedHeartbeat(Device, val);
+			}
+			break;
+		case CANID_VELOCITY_QUAD:
+			val = CANGetInt(rxData);
+			pRxCommands->ReceivedVelocityQuad(Device, rxHeader.DataLength, val);
+			break;
+		case CANID_VELOCITY_SINGLE:
+			val = CANGetInt(rxData);
+			pRxCommands->ReceivedVelocitySingle(Device, val);
+			break;
+		case CANID_SPEED_SCALE:
+			val = CANGetFloat(rxData);
+			pRxCommands->ReceivedSpeedScale(Device, val);
+			break;
+		case CANID_SFOC:
+			CANGetString(rxData, Str, min(MAX_STRLEN, (int)rxHeader.DataLength));
+			pRxCommands->ReceivedSFOCCmd(Device, Str);
+			break;
+		case CANID_MISC:
+			CANGetString(rxData, Str, min(MAX_STRLEN-1, (int)rxHeader.DataLength));
+			pRxCommands->ReceivedMisc(Device, Str);
+			break;
+		default:
+			val = CANGetInt(rxData);
+
+			char buf [32];
+			char buf2 [64];
+
+			utoa(rxHeader.Identifier,buf,2);
+			utoa(val,buf2,2);
+
+			Serial.printf("R~ID:%32s DLC=%d Remote?%d EFF?%d\n data=%64s\n\n", buf, rxHeader.DataLength, rxHeader.RxFrameType, rxHeader.IdType, (rxHeader.RxFrameType ? "~" : buf2));
+	}
 };

@@ -1,14 +1,42 @@
 #ifndef CONTROL_INTERFACE
 #define CONTROL_INTERFACE
 
-#include <ControlInterface.h>
-#include <Arduino.h>
+#include "Arduino.h"
+#include <math.h>
+#include "ControlInterface.h"
 // #include <MsgPacketizer.h>
 // ------------------- Test 1: MsgPack Control Packet -------------------
 // #define CONTROLTEST
-#define ACKPACKET
-#define ECHO_MSGPACK // #DEBUG - echo msgpack messages as string
+// #define ACKPACKET
+// #define ECHO_MSGPACK // #DEBUG - echo msgpack messages as string
 
+void CalcSteerCenter(int16_t *d, int16_t *h, int joyx, int joyy)
+{
+    // sgn(joyx)*STEERCTR_D_MIN + STEERCTR_SCALING * atan2(JOY_MAX, joyx*M_PI_2);
+    *d = sgn(joyx)*STEERCTR_D_MIN + STEERCTR_SCALING * tan(joyx*M_PI_2 / JOY_MAX + M_PI_2);
+    // hmax = (abs(d) - STEERCTR_D_MIN)*tan(STEERANGLE_MAX_RAD)
+    *h = joyy / JOY_MAX * (abs(*d) - STEERCTR_D_MIN)*tan(STEERANGLE_MAX_RAD);
+}
+
+void CalcMotionVector(MotionVector *mvec, int joyx, int joyy, int throttle)
+{
+    int16_t d, h;
+    CalcSteerCenter(&d, &h, joyx, joyy);
+    int SCdist[4] = {sqrt(sq(SCDY - h)+sq(-SCDX - d)), sqrt(sq(SCDY - h)+sq(SCDX - d)), sqrt(sq(-SCDY - h)+sq(-SCDX - d)), sqrt(sq(-SCDY - h)+sq(SCDX - d))};
+    mvec->aFL = atan2(SCDY - h, -SCDX - d);
+    mvec->aFR = atan2(SCDY - h, SCDX - d);
+    mvec->aBL = atan2(-SCDY - h, -SCDX - d);
+    mvec->aBR = atan2(-SCDY - h, SCDX - d);
+    int m = max(max(SCdist[0], SCdist[1]), max(SCdist[2], SCdist[3]));
+
+    mvec->vFL = SCdist[0]/m*throttle;
+    mvec->vFR = SCdist[1]/m*throttle;
+    mvec->vBL = SCdist[2]/m*throttle;
+    mvec->vBR = SCdist[3]/m*throttle;
+}
+
+
+/* --- Test Code for controls --- */
 #ifdef CONTROLTEST
 
 MsgPack::Unpacker unpacker;
@@ -134,27 +162,8 @@ void loop()
 
 void PrintPacket(ControlPacket *cmd)
 {
-    Serial.printf("CP: %d %d %d %d %s\n", cmd->a, cmd->b, cmd->ljx, cmd->ljy, cmd->s);  // #TODO: print string?
+    Serial.printf("CP: %d %d %d %d %s\n", cmd->a, cmd->b, cmd->ljx, cmd->ljy, cmd->s);
 }
-
-// MsgPack::map_t<String, int> mp {{"a", 1}, {"b", 2}, {"c", 3}};  // json {{"a", 1}, {"b", 2}, {"c", 3}}
-
-// const uint8_t RECV_INDEX = 0x21;
-// const uint8_t SEND_INDEX = 0x22;
-
-// void setup()
-// {
-//     Serial.begin(115200);
-//     delay(2000);
-//     Serial.print("Setup complete.");
-
-//     // update received data directly - taken from map_bind_to_variables.ino
-//     MsgPacketizer::subscribe(Serial, RECV_INDEX, cmd);
-
-//     // register variables to publish repeatedly
-//     MsgPacketizer::publish(Serial, SEND_INDEX, cmd)
-//         ->setFrameRate(10.f);
-// }
 
 #endif
 

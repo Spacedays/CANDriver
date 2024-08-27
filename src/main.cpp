@@ -1,7 +1,6 @@
-#define CONTROLTEST
 
 #ifdef CONTROLTEST
-#include "ControlInterface.cpp"
+#include "ControlInterface.h"
 #elif defined(DUAL)
 #include "../Brain/CANBrain_dualcore.cpp"
 #elif defined(BRAIN)

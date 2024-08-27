@@ -192,6 +192,7 @@ void loop()
 			{
 				case '?':
 					
+					// #TODO: Replace all the printing with debug prints
 					#ifdef ARDUINO_GENERIC_G431CBUX
 					Serial.print("Generic G431CBU - ");
 					#elif defined(STM32G4xx)
