@@ -18,23 +18,29 @@
 #define D(x)
 #endif // Debug macro
 
-void CalcSteerCenter(int16_t *d, int16_t *h, int joyx, int joyy)
+void CalcSteerCenter(int16_t d, int16_t h, int joyx, int joyy)
 {
 	// sgn(joyx)*STEERCTR_D_MIN + STEERCTR_SCALING * atan2(JOY_MAX, joyx*M_PI_2);
-	*d = sgn(joyx) * STEERCTR_D_MIN + STEERCTR_SCALING * tan(joyx * M_PI_2 / JOY_MAX + M_PI_2);
+	d = sgn(joyx) * STEERCTR_D_MIN + STEERCTR_SCALING * tan(joyx * M_PI_2 / JOY_MAX + M_PI_2);
 	// hmax = (abs(d) - STEERCTR_D_MIN)*tan(STEERANGLE_MAX_RAD)
-	*h = joyy / JOY_MAX * (abs(*d) - STEERCTR_D_MIN) * tan(STEERANGLE_MAX_RAD);
+	h = joyy / JOY_MAX * (abs(d) - STEERCTR_D_MIN) * tan(STEERANGLE_MAX_RAD);
 }
 
-void CalcMotionVector(MotionVector *mvec, int joyx, int joyy, int throttle)
+const float RAD2DEG = 180 / PI;
+void CalcMotionVector(MotionVector *mvec, ControlPacket *cmd)
 {
 	int16_t d, h;
-	CalcSteerCenter(&d, &h, joyx, joyy);
+	CalcSteerCenter(d, h, cmd->ljx, cmd->ljy);
+	CalcMotionVector(mvec, d, h, cmd->rt);
+}
+
+void CalcMotionVector(MotionVector *mvec, int16_t d, int16_t h, int throttle=1)
+{
 	int SCdist[4] = {sqrt(sq(SCDY - h) + sq(-SCDX - d)), sqrt(sq(SCDY - h) + sq(SCDX - d)), sqrt(sq(-SCDY - h) + sq(-SCDX - d)), sqrt(sq(-SCDY - h) + sq(SCDX - d))};
-	mvec->aFL = atan2(SCDY - h, -SCDX - d);
-	mvec->aFR = atan2(SCDY - h, SCDX - d);
-	mvec->aBL = atan2(-SCDY - h, -SCDX - d);
-	mvec->aBR = atan2(-SCDY - h, SCDX - d);
+	mvec->aFL = atan2(SCDY - h, -SCDX - d) * RAD2DEG;
+	mvec->aFR = atan2(SCDY - h, SCDX - d) * RAD2DEG;
+	mvec->aBL = atan2(-SCDY - h, -SCDX - d) * RAD2DEG;
+	mvec->aBR = atan2(-SCDY - h, SCDX - d) * RAD2DEG;
 	int m = max(max(SCdist[0], SCdist[1]), max(SCdist[2], SCdist[3]));
 
 	mvec->vFL = SCdist[0] / m * throttle;
@@ -50,7 +56,7 @@ PacketHandler::PacketHandler(ControlPacketCallback cmdcb, StrPacketCallback strc
 	StrCallback = strcb;
 }
 
-int PacketHandler::ParseSerial(const u8_t cbuff_start_idx = 0)
+int PacketHandler::ParseSerial(const u8_t cbuff_start_idx)
 {
 
 	// -1: failed to parse
@@ -180,11 +186,14 @@ void PacketHandler::SendPacket(const ControlPacket *cmd)
 	Serial.println(); // F("\nFinished writing control packet!"));
 }
 
+void PrintPacket(ControlPacket *cmd)
+{
+	ControlPacket cp = *cmd;
+	// Serial.printf("CP: %d %d %d %d %s\n", cmd->a, cmd->b, cmd->rt, cmd->ljx, cmd->ljy, cmd->s);
+	Serial.printf("CP: (%d,%d) %d (%d,%d) %s\n", cp.a, cp.b, cp.rt, cp.ljx, cp.ljy, cp.s);
+};
+
 /* --- Test Code for controls --- */
-
-#ifdef CONTROLTEST
-#warning BUILDING CONTROLTEST
-
 
 void PrintStrMsg(char *msg, uint strlen, bool partial, bool overflow)
 {
@@ -196,12 +205,16 @@ void PrintStrMsg(char *msg, uint strlen, bool partial, bool overflow)
 		Serial.print("!Overflow!");
 }
 
+#ifdef CONTROLTEST
+#warning BUILDING CONTROLTEST
+
+
 // void PrintSteerCenter()
 
 PacketHandler pkt(PrintPacket, PrintStrMsg);
 
-u16_t *d;
-u16_t *h;
+u16_t *steer_d;
+u16_t *steer_h;
 
 uint blinkduration = 300;
 unsigned long lastupdate = 0;
@@ -233,11 +246,6 @@ void loop()
 		blinkstate = !blinkstate;
 		blinktime = millis();
 	}
-}
-
-void PrintPacket(ControlPacket *cmd)
-{
-	Serial.printf("CP: %d %d %d %d %s\n", cmd->a, cmd->b, cmd->ljx, cmd->ljy, cmd->s);
 }
 
 #endif
