@@ -12,9 +12,9 @@
 #define CANDRIVER_CPP
 
 #ifdef DEBUG
-#  define D(x) x
+#define D(x) x
 #else
-#  define D(x)
+#define D(x)
 #endif // Debug macro
 
 #include <Arduino.h>
@@ -135,24 +135,19 @@ RxFromCAN CANBroker;
 CANDriver CANDevice(CreateCanLib(pinTx, pinRx), &CANBroker);
 
 // Single char items containing instructions on what to do
-queue_t sendToCAN;		// [ D->Disable motors/drivers | E->Enable motors/drivers | C->Process & send SFOC Commander msg | S->Process string message ] (C -> Command packet received? maybe not...)
+queue_t sendToCAN; // [ D->Disable motors/drivers | E->Enable motors/drivers | C->Process & send SFOC Commander msg | S->Process string message ] (C -> Command packet received? maybe not...)
 queue_t receivedCAN;
 
 bool ledstatus;
 uint32_t led_time = 0;
 
-
-
 // Loop 0: Pi <-> Pico Comms
 // Loop 1: Pico <-> Driver Comms
 void setup()
 {
-	// Serial1.begin(BAUDRATE);
-	// Serial1.println("Serial Test");
 	Serial.begin(BAUDRATE);
 	delay(500);
 	Serial.println("Started");
-	// while (!Serial);
 
 	delay(3000);
 
@@ -172,125 +167,52 @@ void setup()
 }
 
 #ifdef ARDUINO_GENERIC_G431CBUX
-	static bool broadcasting = true;
+static bool broadcasting = true;
 #else
-	static bool broadcasting;
+static bool broadcasting;
 #endif
-	static bool silent;
+static bool silent;
 
-#ifndef TEST_CANMSG // end simple CAN Msg Test
+#ifndef TEST_CANMSG // test of msgpack comms
 
 MsgPack::Unpacker unpacker;
 MsgPack::Packer packer;
 
-ControlPacket cmd = {false, false, 125, 126, "K"};
-char cbuff[64];
-char c = '\0';
+ControlPacket cmd = {false, false, 0, 125, 126, "K"};
+ControlPacket prevCmd = {};
+MotionVector mvec = {};
+
+void handlePacket(MotionVector *mvec, const ControlPacket *cmd, ControlPacket *prevCmd);
+PacketHandler handler([](ControlPacket *cmd)
+				  { handlePacket(&mvec, cmd, &prevCmd); },
+				  PrintStrMsg);
 
 bool blinkstate;
 bool read_success;
-byte msgdata[128]; // #TODO: see if this is enough?
-u8_t i = 0;
-u8_t j = 0;
-char lenbuf[5];     // up to 99999 bytes?
-uint msglen = 0;
 u8_t blinkduration = 200;
 u32_t lastupdate = 0;
 u32_t blinktime = 0;
 
+u8_t i = 0;
+
 /*  Main Loop - High-level Comms*/
 void loop()
 {
-	// Read characters until '\n'. MsgPack messages will be preceeded by "\n~[msg_len]\n", then followed by the binary data
-	while (Serial.available() && c != '\n' && i < 64)
+	i = handler.ParseSerial(); // Triggers any callbacks
+
+	if (i < 0)
 	{
-		c = Serial.read();
-		memcpy(&cbuff[i], &c, 1);
-		i++;
+		Serial.print(F("ERR - Failed parsing serial w/ code "));
+		Serial.println(i);
 	}
-	// Received data
-	if (i > 0)
+	else
 	{
-		blinkduration = (blinkduration == 200 ? 500 : 200);
-
-		// Received String - do something with it
-		D(Serial.printf("-\n-Received Message: '%s'\n",cbuff);)
-		i = 0;
-		if (c == '\n')
-		{
-			c = Serial.read();
-			if (c == '~')
-			{
-				j = 0;
-				c = Serial.read();
-				while (c != '~' && j < 5)
-				{
-					lenbuf[j] = c;
-					c = Serial.read();
-					j++;
-				}
-				msglen = strtol(lenbuf, 0, 0);
-				memset(lenbuf, 0, sizeof(lenbuf));
-
-				if (!msglen)
-					return;
-				j = Serial.readBytes(msgdata, msglen);
-				if (j < msglen)
-				{
-					Serial.printf("Incomplete Msgpack; waiting on %dB...", msglen - j);
-					Serial.readBytes(msgdata, msglen - j);
-				}
-				//#DEBUG - data prints
-				D(Serial.print("Data: ");)
-				D(Serial.write(msgdata, msglen);)
-				D(Serial.printf("\nLen: %d\n", msglen);)
-				if (!unpacker.feed(msgdata, msglen))
-					return;
-				// if (unpacker.isArray()) // #TODO: define EXT array type for various control packets
-				if (unpacker.deserialize(cmd))
-				{
-#ifdef ACKPACKET
-					Serial.println("ACK\r");
-#endif
-					if (cmd.s != "")
-					{
-						// Process String message...
-						c = 'S';
-						queue_add_blocking(&sendToCAN, &c);
-					}
-#ifdef ECHO_MSGPACK
-					PrintPacket(&cmd);
-#endif
-				}
-				else
-					Serial.println(F("\r\nFailed to deserialize!\r"));
-			}
-			else
-			{
-				// Message is a string; Reset and continue reading characters
-				cbuff[i] = c;
-				i++;
-			}
-		}
-		else
-		{
-			// #TODO: Reached end of buffer while reading string; process part of string message
-			Serial.print(F("\r\nReceived partial string with length "));
-			Serial.println(i);
-			i = 0;
-		}
+		queue_add_blocking(&sendToCAN, "D");
 	}
-
 	// Report most recent command
 	if (millis() - lastupdate > 5000)
 	{
-		packer.serialize(cmd);
-		Serial.print(PACKETDELIM);
-		Serial.print(packer.size());
-		Serial.print(LEN_SEP);
-		Serial.write((char *)packer.data(), packer.size());
-		packer.clear();
-		Serial.println();
+		handler.SendPacket(&(handler.cmd));
 		lastupdate = millis();
 	}
 	if (millis() - blinktime > blinkduration)
@@ -301,11 +223,7 @@ void loop()
 	}
 }
 
-void PrintPacket(ControlPacket *cmd)
-{
-	Serial.printf("CP: %d %d %d %d %s\n", cmd->a, cmd->b, cmd->ljx, cmd->ljy, cmd->s);
-}
-#else	// TEST_CANMSG
+#else // TEST_CANMSG
 void loop()
 {
 	static uint32_t LastAction = millis();
@@ -325,7 +243,6 @@ void loop()
 	static uint32_t LastStatus = 0;
 	uint32_t Status = 0;
 	char StatusStr[MAX_STATUS_STR_LEN] = {0};
-
 
 	// serial feedback
 	if (Serial.available())
@@ -425,13 +342,13 @@ void loop()
 }
 #endif // end simple CAN Msg Test
 
+/* ### LOOP 2 - DRIVER INTERACTION (& some host debugging for now) ###*/
 
-u8_t cmd_interval_ms = 10;	// 100Hz - #LATER: what's the max?
+u8_t cmd_interval_ms = 10; // 100Hz - #LATER: what's the max?
 
 /* Rover State */
 long lastcmd_ms = 0;
 long heartbeat_timeouts[4];
-MotionVector mvec;
 
 #define FLOATVAL 4.02
 void setup1()
@@ -453,25 +370,6 @@ void loop1()
 		queue_remove_blocking(&sendToCAN, &c);
 		switch (c)
 		{
-		// case 'H':
-		// 	// Serial.printf("Sending Heartbeat (ID 0x%x)\n", CD_MAKE_CAN_ID(MyDeviceID, CANID_HEARTBEAT));
-		// 	CANDevice.CANSendInt(1, CD_MAKE_CAN_ID(MyDeviceID, CANID_HEARTBEAT));
-		// 	break;
-		// case 'R':
-		// 	// Serial.printf("Request heartbeat (ID 0x%x)\n", CD_MAKE_CAN_ID(MyDeviceID, CANID_HEARTBEAT));
-		// 	CANDevice.RequestHeartbeat(MyDeviceID);
-		// 	break;
-		// case 'Q':
-		// 	// Serial.println("Sending Velocity Quad (-127 to 127) for 32b");
-		// 	CANBroker.RTR = false;
-		// 	quad = 0b01111111 << 24 | 0b10000001 << 16 | 0b01011101 << 8 | 0b10100011; // 127 -127 93 -93
-		// 	// quad = (127 << 24) & (-127 << 16) & (93 << 8) & (-93);
-		// 	CANDevice.CANSendInt(quad, CD_MAKE_CAN_ID(MyDeviceID, CANID_VELOCITY_QUAD));
-		// 	break;
-		// case 'E':
-		// 	// Serial.println("Sending Velocity Single -528 ");
-		// 	CANDevice.CANSendInt(-528, CD_MAKE_CAN_ID(MyDeviceID, CANID_VELOCITY_SINGLE));
-		// 	break;
 		case 'V':
 			// Serial.printf("Sending Speed Scale: %.3f (ID 0x%x)\n", FLOATVAL, CD_MAKE_CAN_ID(MyDeviceID, CANID_SPEED_SCALE));
 			CANDevice.CANSendFloat(FLOATVAL, CD_MAKE_CAN_ID(MyDeviceID, CANID_SPEED_SCALE));
@@ -484,21 +382,38 @@ void loop1()
 			// Serial.printf("Sending Misc. (ID 0x%x)\n", CD_MAKE_CAN_ID(MyDeviceID, CANID_MISC));
 			CANDevice.CANSendText("Misc. Msg", CD_MAKE_CAN_ID(MyDeviceID, CANID_MISC));
 			break;
-		// default:
-		// Serial.printf("Options:\n? - list ID info\nP - Send Ping\nO - Send Pong\nI - Send Int value\nF - Send float value %f\nR - Send int request (should get 1234 back)\nB - Toggle broadcasting\nS - Toggle silence\nD - Bump ID", FLOATVAL);
+		case 'D':
+			// Serial.println("DEBUG MESSAGE!"); // #TODO - IMPLEMENT
+			// Serial.printf("SC:");
+			// Serial.printf("FL:%4d | %3d           FR: %4d %3d\nBL:%4d | %3d           BR: %4d %3d\n", mvec.vFL, mvec.aFL, mvec.vFR, mvec.aFR, mvec.vBL, mvec.aBL, mvec.vBR, mvec.aBR);
+			;
+			// default:
+			// 	Serial.printf("Options:\n? - list ID info\nP - Send Ping\nO - Send Pong\nI - Send Int value\nF - Send float value %f\nR - Send int request (should get 1234 back)\nB - Toggle broadcasting\nS - Toggle silence\nD - Bump ID", FLOATVAL);
 		}
 	}
 	if (millis() - lastcmd_ms > cmd_interval_ms)
-		{
-			CANDevice.SendVelocityQuad(mvec.vFL, mvec.vFL, mvec.vBL, mvec.vBR);
-			// servoFL.setpos(mvec.aFL);
-			// servoFR.setpos(mvec.aFR);
-			// servoBL.setpos(mvec.aBL);
-			// servoBR.setpos(mvec.aBR);
-		}
+	{
+		CANDevice.SendVelocityQuad(mvec.vFL, mvec.vFL, mvec.vBL, mvec.vBR);
+		// servoFL.setpos(mvec.aFL);
+		// servoFR.setpos(mvec.aFR);
+		// servoBL.setpos(mvec.aBL);
+		// servoBR.setpos(mvec.aBR);
+	}
 
 	// Update message queues.
 	CANDevice.Can1->Loop();
 };
 
 #endif
+
+void handlePacket(MotionVector *mvec, const ControlPacket *cmd, ControlPacket *prevCmd)
+{
+	int16_t d, h;
+	CalcSteerCenter(&d, &h, cmd->ljx, cmd->ljy);
+	CalcMotionVector(mvec, d, h, cmd->rt);
+	MotionVector veccp = *mvec;
+	// CalcMotionVector(mvec, cmd);
+	Serial.printf("SC: (%4d,%4d)\n", d, h);
+	Serial.printf("FL:%5d | %4d  FR: %5d | %4d  BL:%5d | %4d  BR: %5d %4d\n", veccp.vFL, veccp.aFL, veccp.vFR, veccp.aFR, veccp.vBL, veccp.aBL, veccp.vBR, veccp.aBR);
+	*prevCmd = *cmd;
+}

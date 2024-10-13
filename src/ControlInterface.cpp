@@ -18,29 +18,33 @@
 #define D(x)
 #endif // Debug macro
 
-void CalcSteerCenter(int16_t d, int16_t h, int joyx, int joyy)
+void CalcSteerCenter(int16_t *d, int16_t *h, int joyx, int joyy)
 {
 	// sgn(joyx)*STEERCTR_D_MIN + STEERCTR_SCALING * atan2(JOY_MAX, joyx*M_PI_2);
-	d = sgn(joyx) * STEERCTR_D_MIN + STEERCTR_SCALING * tan(joyx * M_PI_2 / JOY_MAX + M_PI_2);
+	*d = sgn(joyx) * (STEERCTR_D_MIN + STEERCTR_SCALING * tan(abs(joyx) / JOY_MAX * M_PI_2 - M_PI_2));
 	// hmax = (abs(d) - STEERCTR_D_MIN)*tan(STEERANGLE_MAX_RAD)
-	h = joyy / JOY_MAX * (abs(d) - STEERCTR_D_MIN) * tan(STEERANGLE_MAX_RAD);
+	*h = joyy / JOY_MAX * (abs(*d) - STEERCTR_D_MIN) * tan(STEERANGLE_MAX_RAD);
 }
 
 const float RAD2DEG = 180 / PI;
 void CalcMotionVector(MotionVector *mvec, ControlPacket *cmd)
 {
 	int16_t d, h;
-	CalcSteerCenter(d, h, cmd->ljx, cmd->ljy);
+	CalcSteerCenter(&d, &h, cmd->ljx, cmd->ljy);
 	CalcMotionVector(mvec, d, h, cmd->rt);
 }
 
-void CalcMotionVector(MotionVector *mvec, int16_t d, int16_t h, int throttle=1)
+//
+void CalcMotionVector(MotionVector *mvec, int16_t d, int16_t h, int16_t throttle = 0)
 {
-	int SCdist[4] = {sqrt(sq(SCDY - h) + sq(-SCDX - d)), sqrt(sq(SCDY - h) + sq(SCDX - d)), sqrt(sq(-SCDY - h) + sq(-SCDX - d)), sqrt(sq(-SCDY - h) + sq(SCDX - d))};
-	mvec->aFL = atan2(SCDY - h, -SCDX - d) * RAD2DEG;
-	mvec->aFR = atan2(SCDY - h, SCDX - d) * RAD2DEG;
-	mvec->aBL = atan2(-SCDY - h, -SCDX - d) * RAD2DEG;
-	mvec->aBR = atan2(-SCDY - h, SCDX - d) * RAD2DEG;
+	int SCdist[4] = {sqrt(sq(SCDY - h) + sq(-SCDX - d)),
+						  sqrt(sq(SCDY - h) + sq(SCDX - d)),
+						  sqrt(sq(-SCDY - h) + sq(-SCDX - d)),
+						  sqrt(sq(-SCDY - h) + sq(SCDX - d))};
+	mvec->aFL = int(atan((SCDY - h) / (-SCDX - d)) * RAD2DEG);
+	mvec->aFR = int(atan((SCDY - h) / (SCDX - d)) * RAD2DEG);
+	mvec->aBL = int(atan((-SCDY - h) / (-SCDX - d)) * RAD2DEG);
+	mvec->aBR = int(atan((-SCDY - h) / (SCDX - d)) * RAD2DEG);
 	int m = max(max(SCdist[0], SCdist[1]), max(SCdist[2], SCdist[3]));
 
 	mvec->vFL = SCdist[0] / m * throttle;
@@ -208,10 +212,9 @@ void PrintStrMsg(char *msg, uint strlen, bool partial, bool overflow)
 #ifdef CONTROLTEST
 #warning BUILDING CONTROLTEST
 
-
 // void PrintSteerCenter()
 
-PacketHandler pkt(PrintPacket, PrintStrMsg);
+PacketHandler handler(PrintPacket, PrintStrMsg);
 
 u16_t *steer_d;
 u16_t *steer_h;
@@ -232,12 +235,12 @@ void setup()
 
 void loop()
 {
-	pkt.ParseSerial();
+	handler.ParseSerial();
 
-	if (millis() - lastupdate > 2000)	// #DEBUG Why does this break above 2000?
+	if (millis() - lastupdate > 2000) // #DEBUG Why does this break above 2000?
 	{
 		// packer.to_array(cmd.a, cmd.b, cmd.ljx, cmd.ljy, cmd.s);
-		pkt.SendPacket(&(pkt.cmd));
+		handler.SendPacket(&(handler.cmd));
 		lastupdate = millis();
 	}
 	if (millis() - blinktime > blinkduration)

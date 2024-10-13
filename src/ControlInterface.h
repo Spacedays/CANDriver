@@ -11,7 +11,7 @@ extern void loop();
 #define PACKETDELIM "\n~"
 #define LEN_SEP '~'
 
-#define JOY_MAX 1024
+const int16_t JOY_MAX = 32767;
 
 struct ControlPacket
 {
@@ -23,17 +23,21 @@ struct ControlPacket
 	MsgPack::str_t s = "Hello, Pi!";
 	MSGPACK_DEFINE(a, b, rt, ljx, ljy, s); // conversion to array -> [a, b, ljx, ljy, s]
 };
+template <typename T> int sgn(T val) {
+	return (T(0) < val) - (val < T(0));
+}
 
-const float STEERANGLE_MAX_RAD = M_PI_4;
+// steering angles are stored as a delta wrt center position (which is 90 degrees)
 const u8_t STEERCTR_D_MIN = 200;  //#FIXME steer center dmin value
-const float STEERCTR_SCALING = 1;
+const u8_t STEERCTR_SCALING = 200;
+const float STEERANGLE_MAX_RAD = M_PI_4;
+const uint8_t STEER_RATIO = 2;	// steering is REDUCED by this amount. (e.g. servo delta of 90 = steering delta of 45)
+
+// 
 
 /* Steer Center DX/DY (abs. distance from origin to wheels)*/
 const u8_t SCDX = 114;
 const u8_t SCDY = 141;
-template <typename T> int sgn(T val) {
-	return (T(0) < val) - (val < T(0));
-}
 
 struct MotionVector
 {
@@ -54,7 +58,8 @@ void PrintPacket(ControlPacket *cmd);
 void PrintStrMsg(char *msg, uint strlen, bool partial, bool overflow);
 
 void CalcSteerCenter(int16_t *d, int16_t *h, int joyx, int joyy);
-void CalcMotionVector(MotionVector *mvec, int joyx, int joyy, int throttle);
+void CalcMotionVector(MotionVector *mvec, ControlPacket *cmd);
+void CalcMotionVector(MotionVector *mvec, int16_t joyx, int16_t joyy, int16_t throttle);
 
 // MotionVector ProcessPacket(ControlPacket);
 
