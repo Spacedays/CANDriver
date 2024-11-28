@@ -195,7 +195,7 @@ u32_t blinktime = 0;
 
 u8_t i = 0;
 
-/*  Main Loop - High-level Comms*/
+/*  Main Loop - Pi <-> Pico Comms*/
 void loop()
 {
 	i = handler.ParseSerial(); // Triggers any callbacks
@@ -342,7 +342,7 @@ void loop()
 }
 #endif // end simple CAN Msg Test
 
-/* ### LOOP 2 - DRIVER INTERACTION (& some host debugging for now) ###*/
+/* ### LOOP 2 - INTERACTION w/ DRIVERS (& some host debugging for now) ###*/
 
 u8_t cmd_interval_ms = 10; // 100Hz - #LATER: what's the max?
 
@@ -406,12 +406,16 @@ void loop1()
 
 #endif
 
+/// @brief Calculates the motion vector, updating mvec with the updated values
+/// @param mvec 
+/// @param cmd 
+/// @param prevCmd buffer to store previous command in
 void handlePacket(MotionVector *mvec, const ControlPacket *cmd, ControlPacket *prevCmd)
 {
 	int16_t d, h;
 	CalcSteerCenter(&d, &h, cmd->ljx, cmd->ljy);
 	CalcMotionVector(mvec, d, h, cmd->rt);
-	MotionVector veccp = *mvec;
+	MotionVector veccp = *mvec;	// just for printing in case the motion vector gets overwritten while printing
 	// CalcMotionVector(mvec, cmd);
 	Serial.printf("SC: (%4d,%4d)\n", d, h);
 	Serial.printf("FL:%5d | %4d  FR: %5d | %4d  BL:%5d | %4d  BR: %5d %4d\n", veccp.vFL, veccp.aFL, veccp.vFR, veccp.aFR, veccp.vBL, veccp.aBL, veccp.vBR, veccp.aBR);

@@ -60,6 +60,9 @@ PacketHandler::PacketHandler(ControlPacketCallback cmdcb, StrPacketCallback strc
 	StrCallback = strcb;
 }
 
+/// @brief Parses serial input for a msgpack message, potentially triggering CmdCallback and/or StrCallback
+/// @param cbuff_start_idx
+/// @return -1: Failed to parse; -2: Msgpack length is 0; -3: Unterminated string
 int PacketHandler::ParseSerial(const u8_t cbuff_start_idx)
 {
 

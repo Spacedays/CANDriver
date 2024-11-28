@@ -33,7 +33,7 @@ const u8_t STEERCTR_SCALING = 200;
 const float STEERANGLE_MAX_RAD = M_PI_4;
 const uint8_t STEER_RATIO = 2;	// steering is REDUCED by this amount. (e.g. servo delta of 90 = steering delta of 45)
 
-// 
+
 
 /* Steer Center DX/DY (abs. distance from origin to wheels)*/
 const u8_t SCDX = 114;

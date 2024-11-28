@@ -1,8 +1,9 @@
+/*
+The code for a SimpleFOC Motor Driver, controlled via CAN Bus
+*/
+
 #ifndef CANDRIVER_CPP
 #define CANDRIVER_CPP
-/*
-CAN-Bus controlled driver
-*/
 #include <Arduino.h>
 #include <math.h>
 
@@ -180,7 +181,7 @@ void loop()
 		digitalWrite(LED_BUILTIN, ledstatus);
 	}
 
-	// serial feedback
+	// serial response
 	if (Serial.available())
 		{
 			uint64_t quad;
