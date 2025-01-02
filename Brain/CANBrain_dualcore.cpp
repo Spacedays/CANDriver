@@ -20,6 +20,7 @@
 #include <Arduino.h>
 #include <math.h>
 #include "ControlInterface.h"
+#include "MotionControl.h"
 
 #ifdef PICO
 #warning PICO - 17-CANTX 16-CANRX
@@ -145,25 +146,11 @@ uint32_t led_time = 0;
 // Loop 1: Pico <-> Driver Comms
 void setup()
 {
-	Serial.begin(BAUDRATE);
 	delay(500);
-	Serial.println("Started");
+	Serial.begin(BAUDRATE);
+	Serial.println("Started Serial");
 
 	delay(3000);
-
-	uint8_t pinRx, pinTx;
-
-	pinMode(LED_BUILTIN, OUTPUT);
-	CANDevice.Init();
-	Serial.println("finished init");
-	delay(200);
-	// Set bus termination on/off (may not be available on all platforms).
-	if (CAN_OK != CANDevice.Can1->SetBusTermination(true))
-		Serial.println("Setting CAN bus termination via software not possible");
-	Serial.println("finished termination");
-	delay(200);
-
-	Serial.printf("Setup done, device ID is %d\n", MyDeviceID);
 }
 
 #ifdef ARDUINO_GENERIC_G431CBUX
@@ -180,11 +167,13 @@ MsgPack::Packer packer;
 
 ControlPacket cmd = {false, false, 0, 125, 126, "K"};
 ControlPacket prevCmd = {};
-MotionVector mvec = {};
+// MotionVector mvec = {};
 
-void handlePacket(MotionVector *mvec, const ControlPacket *cmd, ControlPacket *prevCmd);
-PacketHandler handler([](ControlPacket *cmd)
-				  { handlePacket(&mvec, cmd, &prevCmd); },
+// Rover State - Motion control
+RoverState roverState;
+
+void handlePacket(RoverState *rover, const ControlPacket *cmd);
+PacketHandler handler([](ControlPacket *cmd){ handlePacket(&roverState, cmd); },
 				  PrintStrMsg);
 
 bool blinkstate;
@@ -193,17 +182,17 @@ u8_t blinkduration = 200;
 u32_t lastupdate = 0;
 u32_t blinktime = 0;
 
-u8_t i = 0;
+u8_t parseResult = 0;
 
 /*  Main Loop - Pi <-> Pico Comms*/
 void loop()
 {
-	i = handler.ParseSerial(); // Triggers any callbacks
+	parseResult = handler.ParseSerial(); // For any ControlPackets, updates mvec. Otherwise, print string msg
 
-	if (i < 0)
+	if (parseResult < 0)
 	{
 		Serial.print(F("ERR - Failed parsing serial w/ code "));
-		Serial.println(i);
+		Serial.println(parseResult);
 	}
 	else
 	{
@@ -347,6 +336,8 @@ void loop()
 u8_t cmd_interval_ms = 10; // 100Hz - #LATER: what's the max?
 
 /* Rover State */
+// RoverState rover;
+
 long lastcmd_ms = 0;
 long heartbeat_timeouts[4];
 
@@ -354,10 +345,32 @@ long heartbeat_timeouts[4];
 void setup1()
 {
 	queue_init(&sendToCAN, sizeof(char), 16);
+
+	delay(3000);
+
+	pinMode(LED_BUILTIN, OUTPUT);
+	CANDevice.Init();
+	Serial.println("finished CAN init");
+	delay(200);
+	// Set bus termination on/off (may not be available on all platforms).
+	if (CAN_OK != CANDevice.Can1->SetBusTermination(true))
+		Serial.println("Setting CAN bus termination via software not possible");
+	Serial.println("finished termination");
+	delay(200);
+
+	Serial.printf("Setup done, device ID is %d\n", MyDeviceID);
+
+	// Driver Initialization #TODO
+
+	// Roll call
+
+	// Init throttle setting, direction, etc.
 }
 void loop1()
 {
 	char c;
+	
+	
 	if (millis() - led_time > 200)
 	{
 		ledstatus = !ledstatus;
@@ -391,9 +404,11 @@ void loop1()
 			// 	Serial.printf("Options:\n? - list ID info\nP - Send Ping\nO - Send Pong\nI - Send Int value\nF - Send float value %f\nR - Send int request (should get 1234 back)\nB - Toggle broadcasting\nS - Toggle silence\nD - Bump ID", FLOATVAL);
 		}
 	}
+	
+	
 	if (millis() - lastcmd_ms > cmd_interval_ms)
 	{
-		CANDevice.SendVelocityQuad(mvec.vFL, mvec.vFL, mvec.vBL, mvec.vBR);
+		CANDevice.SendVelocityQuad(roverState.driveVec.vFL, roverState.driveVec.vFL, roverState.driveVec.vBL, roverState.driveVec.vBR);
 		// servoFL.setpos(mvec.aFL);
 		// servoFR.setpos(mvec.aFR);
 		// servoBL.setpos(mvec.aBL);
@@ -406,18 +421,18 @@ void loop1()
 
 #endif
 
-/// @brief Calculates the motion vector, updating mvec with the updated values
-/// @param mvec 
+/// @brief Calculates the motion vector, updating the rover state's values
+/// @param rover rover state 
 /// @param cmd 
-/// @param prevCmd buffer to store previous command in
-void handlePacket(MotionVector *mvec, const ControlPacket *cmd, ControlPacket *prevCmd)
+void handlePacket(RoverState &rover, const ControlPacket *cmd)
 {
 	int16_t d, h;
 	CalcSteerCenter(&d, &h, cmd->ljx, cmd->ljy);
-	CalcMotionVector(mvec, d, h, cmd->rt);
-	MotionVector veccp = *mvec;	// just for printing in case the motion vector gets overwritten while printing
-	// CalcMotionVector(mvec, cmd);
+	CalcMotionVector(&rover.targetVec, d, h, cmd->rt);
+	MotionVector veccp = rover.targetVec;	// just for printing in case the motion vector gets overwritten while printing
+	rover.Update();	// Calc next motor values
+	
 	Serial.printf("SC: (%4d,%4d)\n", d, h);
 	Serial.printf("FL:%5d | %4d  FR: %5d | %4d  BL:%5d | %4d  BR: %5d %4d\n", veccp.vFL, veccp.aFL, veccp.vFR, veccp.aFR, veccp.vBL, veccp.aBL, veccp.vBR, veccp.aBR);
-	*prevCmd = *cmd;
+	handler.prevCmd = *cmd;
 }
