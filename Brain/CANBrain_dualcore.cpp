@@ -198,7 +198,7 @@ void loop()
 	{
 		queue_add_blocking(&sendToCAN, "D");
 	}
-	// Report most recent command
+	// Report most recent command to the pi
 	if (millis() - lastupdate > 5000)
 	{
 		handler.SendPacket(&(handler.cmd));

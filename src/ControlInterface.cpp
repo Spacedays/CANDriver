@@ -1,8 +1,6 @@
 #ifndef CONTROL_INTERFACE
 #define CONTROL_INTERFACE
 
-#include "Arduino.h"
-#include <math.h>
 #include "ControlInterface.h"
 // #include <MsgPacketizer.h>
 // ------------------- Test 1: MsgPack Control Packet -------------------
@@ -18,24 +16,93 @@
 #define D(x)
 #endif // Debug macro
 
-void CalcSteerCenter(int16_t *d, int16_t *h, int joyx, int joyy)
+# pragma region MotionVectorOperators
+bool operator==(const MotionVector &lhs, const MotionVector &rhs)
+{
+	return lhs.aFL == rhs.aFL && lhs.aFR == rhs.aFR &&
+			 lhs.aBL == rhs.aBL && lhs.aBR == rhs.aBR &&
+			 lhs.vFL == rhs.vFL && lhs.vFR == rhs.vFR &&
+			 lhs.vBL == rhs.vBL && lhs.vBR == rhs.vBR;
+}
+MotionVector operator+(const MotionVector &lhs, const MotionVector &rhs)
+{
+	MotionVector mvec = {
+		 lhs.aFL + rhs.aFL,
+		 lhs.aFR + rhs.aFR,
+		 lhs.aBL + rhs.aBL,
+		 lhs.aBR + rhs.aBR,
+		 lhs.vFL + rhs.vFL,
+		 lhs.vFR + rhs.vFR,
+		 lhs.vBL + rhs.vBL,
+		 lhs.vBR + rhs.vBR,
+	};
+	return mvec;
+}
+MotionVector operator-(const MotionVector &lhs, const MotionVector &rhs)
+{
+	MotionVector mvec = {
+		 lhs.aFL - rhs.aFL,
+		 lhs.aFR - rhs.aFR,
+		 lhs.aBL - rhs.aBL,
+		 lhs.aBR - rhs.aBR,
+		 lhs.vFL - rhs.vFL,
+		 lhs.vFR - rhs.vFR,
+		 lhs.vBL - rhs.vBL,
+		 lhs.vBR - rhs.vBR,
+	};
+	return mvec;
+}
+//TODO: confirm float precision isn't necessary in motion vector
+// Full multiplication
+MotionVector operator*(const MotionVector &lhs, const float mult)
+{
+	MotionVector mvec = {
+		 lhs.aFL * mult,
+		 lhs.aFR * mult,
+		 lhs.aBL * mult,
+		 lhs.aBR * mult,
+		 lhs.vFL * mult,
+		 lhs.vFR * mult,
+		 lhs.vBL * mult,
+		 lhs.vBR * mult,
+	};
+	return mvec;
+}
+// Angle multiplication
+MotionVector operator%(const MotionVector &lhs, const float mult)
+{
+	MotionVector mvec = {
+		 lhs.aFL * mult,
+		 lhs.aFR * mult,
+		 lhs.aBL * mult,
+		 lhs.aBR * mult,
+		 lhs.vFL,
+		 lhs.vFR,
+		 lhs.vBL,
+		 lhs.vBR,
+	};
+	return mvec;
+}
+# pragma endregion MotionVectorOperators
+
+void CalcSteerCenter(float *d, float *h, int joyx, int joyy)
 {
 	// sgn(joyx)*STEERCTR_D_MIN + STEERCTR_SCALING * atan2(JOY_MAX, joyx*M_PI_2);
-	*d = sgn(joyx) * (STEERCTR_D_MIN + STEERCTR_SCALING * tan(abs(joyx) / JOY_MAX * M_PI_2 - M_PI_2));
+	*d = float(sgn(joyx)) * STEERCTR_D_MIN + STEERCTR_SCALING * tan(float(abs(joyx)) / float(JOY_MAX) * M_PI_2 - M_PI_2);
 	// hmax = (abs(d) - STEERCTR_D_MIN)*tan(STEERANGLE_MAX_RAD)
-	*h = joyy / JOY_MAX * (abs(*d) - STEERCTR_D_MIN) * tan(STEERANGLE_MAX_RAD);
+	*h = float(joyy) / float(JOY_MAX) * (float(abs(*d)) - STEERCTR_D_MIN) * tan(STEERANGLE_MAX_RAD);
 }
 
 const float RAD2DEG = 180 / PI;
 void CalcMotionVector(MotionVector *mvec, ControlPacket *cmd)
 {
-	int16_t d, h;
+	float d, h;
 	CalcSteerCenter(&d, &h, cmd->ljx, cmd->ljy);
 	CalcMotionVector(mvec, d, h, cmd->rt);
 }
 
 //
-void CalcMotionVector(MotionVector *mvec, int16_t d, int16_t h, int16_t throttle = 0)
+void CalcMotionVector(MotionVector *mvec, float d, float h, int16_t throttle = 0)
 {
 	int SCdist[4] = {sqrt(sq(SCDY - h) + sq(-SCDX - d)),
 						  sqrt(sq(SCDY - h) + sq(SCDX - d)),
@@ -47,12 +114,18 @@ void CalcMotionVector(MotionVector *mvec, int16_t d, int16_t h, int16_t throttle
 	mvec->aBR = int(atan((-SCDY - h) / (SCDX - d)) * RAD2DEG);
 	int m = max(max(SCdist[0], SCdist[1]), max(SCdist[2], SCdist[3]));
 
-	mvec->vFL = SCdist[0] / m * throttle;
-	mvec->vFR = SCdist[1] / m * throttle;
-	mvec->vBL = SCdist[2] / m * throttle;
-	mvec->vBR = SCdist[3] / m * throttle;
+	mvec->vFL = int(SCdist[0] / m * float(throttle));
+	mvec->vFR = int(SCdist[1] / m * float(throttle));
+	mvec->vBL = int(SCdist[2] / m * float(throttle));
+	mvec->vBR = int(SCdist[3] / m * float(throttle));
 }
 
+float ThrottleToFloat(int throttleval)
+{
+	return float(throttleval) * RT_MAX;
+}
+
+# pragma region MsgPackHandler
 /* --- MsgPackHandler --- */
 PacketHandler::PacketHandler(ControlPacketCallback cmdcb, StrPacketCallback strcb)
 {
@@ -62,21 +135,23 @@ PacketHandler::PacketHandler(ControlPacketCallback cmdcb, StrPacketCallback strc
 
 /// @brief Parses serial input for a msgpack message, potentially triggering CmdCallback and/or StrCallback
 /// @param cbuff_start_idx
-/// @return 1: rx string 0: successful cmd -1: Failed to parse; -2: Msgpack length is 0; -3: Unterminated string
-int PacketHandler::ParseSerial(const u8_t cbuff_start_idx)
+/// @return 2: rx string 1: successful cmd 0: no data -1: Msgpack length is 0; -2: no or malformed data after header; -3: failed deserialization
+int PacketHandler::ParseSerial(const uint8_t cbuff_start_idx)
 {
-
-	// -1: failed to parse
-	// -2: message length header of 0
-	// -3: unterminated string
+	// 2: string
+	// 1: control packet
+	// 0: no data
+	// -1: message length header of 0
+	// -2: no data to unpack after header or data is malformed
+	// -3: data could not be deserialized
 
 	char c = '\0';
 
 	bool partial;
 	bool moredata;
 
-	u8_t i = cbuff_start_idx;
-	u8_t j = 0;
+	uint8_t i = cbuff_start_idx;
+	uint8_t j = 0;
 	char lenbuf[5]; // up to 99999 bytes?
 	uint msglen = 0;
 
@@ -115,7 +190,7 @@ int PacketHandler::ParseSerial(const u8_t cbuff_start_idx)
 				memset(lenbuf, 0, sizeof(lenbuf));
 
 				if (!msglen)
-					return -2;
+					return -1;
 				j = Serial.readBytes(msgdata, msglen);
 				if (j < msglen)
 				{
@@ -127,7 +202,7 @@ int PacketHandler::ParseSerial(const u8_t cbuff_start_idx)
 				D(Serial.write(msgdata, msglen);)
 				D(Serial.printf("\nLen: %d\n", msglen);)
 				if (!unpacker.feed(msgdata, msglen))
-					return -1; // No data to unpack
+					return -2; // No data to unpack after header or data is malformed
 				// if (unpacker.isArray()) // #TODO: define EXT array type or look at headers to handle various control packets
 				if (unpacker.deserialize(cmd))
 				{
@@ -138,11 +213,11 @@ int PacketHandler::ParseSerial(const u8_t cbuff_start_idx)
 #ifdef ECHO_MSGPACK
 					PrintPacket(&cmd);
 #endif
-					return 0;
+					return 1;
 				}
 				unpacker.clear();
 				Serial.println(F("\r\n!Failed to deserialize!\r"));
-				return -2;
+				return -3;	// data could not be deserialized
 			}
 			else // Received terminated string message, more data is still in rx queue
 				partial = false;
@@ -178,7 +253,7 @@ int PacketHandler::ParseSerial(const u8_t cbuff_start_idx)
 		}
 	}
 	StrCallback(cbuff, i, partial, false);
-	return 1;
+	return 2;
 }
 
 void PacketHandler::SendPacket(const ControlPacket *cmd)
@@ -199,6 +274,8 @@ void PrintPacket(ControlPacket *cmd)
 	// Serial.printf("CP: %d %d %d %d %s\n", cmd->a, cmd->b, cmd->rt, cmd->ljx, cmd->ljy, cmd->s);
 	Serial.printf("CP: (%d,%d) %d (%d,%d) %s\n", cp.a, cp.b, cp.rt, cp.ljx, cp.ljy, cp.s);
 };
+
+# pragma endregion MsgPackHandler
 
 /* --- Test Code for controls --- */
 

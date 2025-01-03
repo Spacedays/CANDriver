@@ -10,9 +10,10 @@
 #include <math.h>
 #include "ControlInterface.h"
 #include "MotionControl.h"
+#include "rover_config.h"
 
 #ifdef PICO
-#warning PICO - 17-CANTX 16-CANRX 
+#pragma message("PICO - 17-CANTX 16-CANRX")
 uint8_t pinTx = 17;
 uint8_t pinRx = 16;
 #else
@@ -36,7 +37,7 @@ int MyDeviceID=DEVICEID;
 
 //#TODO: Servo Pins
 
-
+#pragma region SimpleCAN_Setup
 // Function to sign-extend an integer up to 32 bits
 int32_t signExtend(int32_t value, int bitLength) {
     int shift = 32 - bitLength;
@@ -71,7 +72,7 @@ class RxFromCAN : public CANDriverNotifications
 		
 		void ReceivedVelocityQuad(const int Device, int DLC, int quadval)	// bitmask based on driver ID - mask = DEVID*DLC
 		{
-			Serial.printf("Rcvd quad: 0x%x from 0x%x\n", quadval, Device);
+			Serial.printf("Rcvd quad: 0x%x from 0x%x w/ DLC %d\n", quadval, Device, DLC);
 			uint bitlength = DLC*2;	// length in bits of each number. data len = 8xDLC --> mask len = data len/4 = 2xDLC
 			uint neg_mask = 1<<(bitlength-1);	
 			int mask = (1<<bitlength)-1;
@@ -127,6 +128,8 @@ RxFromCAN CANBroker;
 // The actual CAN bus class, which handles all communication.
 CANDriver CANDevice(CreateCanLib(pinTx, pinRx), &CANBroker);
 
+#pragma endregion SimpleCAN_Setup
+
 
 ControlPacket cmd = {false, false, 0, 125, 126, "K"};
 ControlPacket prevCmd = {};
@@ -164,7 +167,7 @@ void setup()
 	Serial.printf("Setup done, device ID is %d\n", MyDeviceID);
 
 	// #TODO: Driver Initialization
-	roverState.initServos();
+	// roverState.initServos();	//FIXME: Servo initialization
 
 	// Roll call
 
@@ -173,7 +176,8 @@ void setup()
 
 
 int parseResult;
-
+int counter;
+long motion_ping;
 
 
 void loop()
@@ -198,13 +202,12 @@ void loop()
 		Serial.print(F("ERR - Failed parsing serial w/ code "));
 		Serial.println(parseResult);
 	}
-	else
+	else if (parseResult == 1)
 	{
 		//TODO: Add check for only string msg parsed to avoid sending extra motion cmds
 		
-		CANDevice.SendVelocityQuad(roverState.driveVec.vFL, roverState.driveVec.vFL, roverState.driveVec.vBL, roverState.driveVec.vBR);
-		roverState.CommandServos();
-		
+		CANDevice.SendVelocityQuad(roverState.driveVec.vFL, roverState.driveVec.vFR, roverState.driveVec.vBL, roverState.driveVec.vBR, CD_MAKE_CAN_ID(MyDeviceID, CANID_VELOCITY_QUAD));
+		// roverState.CommandServos();	//FIXME
 	}
 
 	// Monitor CAN Bus state
@@ -243,20 +246,32 @@ void loop()
 	
 	// Update message queues.
 	CANDevice.Can1->Loop();
+
+	if (millis() - motion_ping > 5000)
+	{
+		CANDevice.SendVelocityQuad(roverState.driveVec.vFL, roverState.driveVec.vFR, roverState.driveVec.vBL, roverState.driveVec.vBR, CD_MAKE_CAN_ID(MyDeviceID, CANID_VELOCITY_QUAD));
+		// Serial.printf("Loops: %d\n",counter);
+		// counter = 0;
+		motion_ping = millis();
+	}
+	// counter++;
 }
 
+// #FIXME: implement targetVec
 /// @brief Calculates the motion vector, updating the rover state's targetVec
 /// @param rover rover state 
 /// @param cmd 
-void handlePacket(RoverState &rover, const ControlPacket *cmd)
+void handlePacket(RoverState *rover, const ControlPacket *cmd)
 {
-	int16_t d, h;
+	// Serial.printf("jx,jy,rt: %5d, %5d, %4d\n", cmd->ljx, cmd->ljy, cmd->rt);
+	float d, h;
 	CalcSteerCenter(&d, &h, cmd->ljx, cmd->ljy);
-	CalcMotionVector(&rover.targetVec, d, h, cmd->rt);
-	MotionVector veccp = rover.targetVec;	// just for printing in case the motion vector gets overwritten while printing
-	rover.Update();	// Calc next motor values
+	// CalcMotionVector(&rover->targetVec, d, h, cmd->rt);
+	CalcMotionVector(&rover->driveVec, d, h, cmd->rt);
+	MotionVector veccp = rover->driveVec;	// just for printing in case the motion vector gets overwritten while printing
+	rover->Update();	// Calc next motor values
 	
-	Serial.printf("SC: (%4d,%4d)\n", d, h);
+	Serial.printf("SC: (%4f,%4f)\n", d, h);
 	Serial.printf("FL:%5d | %4d  FR: %5d | %4d  BL:%5d | %4d  BR: %5d %4d\n", veccp.vFL, veccp.aFL, veccp.vFR, veccp.aFR, veccp.vBL, veccp.aBL, veccp.vBR, veccp.aBR);
 	handler.prevCmd = *cmd;	// TODO: get rid of or encapsulate reference to handler
 }

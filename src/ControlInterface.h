@@ -1,5 +1,6 @@
 #ifndef CONTROL_INTERFACE_H
 #define CONTROL_INTERFACE_H
+#include <Arduino.h>
 #include <math.h>
 #include <MsgPack.h>
 
@@ -12,6 +13,7 @@ extern void loop();
 #define LEN_SEP '~'
 
 const int16_t JOY_MAX = 32767;
+const int16_t RT_MAX = 1023;
 
 struct ControlPacket
 {
@@ -30,14 +32,14 @@ int sgn(T val)
 }
 
 // steering angles are stored as a delta wrt center position (which is 90 degrees)
-const u8_t STEERCTR_D_MIN = 200; // #FIXME steer center dmin value
-const u8_t STEERCTR_SCALING = 200;
+const float STEERCTR_D_MIN = 200; // #FIXME steer center dmin value
+const float STEERCTR_SCALING = 200;
 const float STEERANGLE_MAX_RAD = M_PI_4;
-const uint8_t STEER_RATIO = 2; // steering is REDUCED by this amount. (e.g. servo delta of 90 = steering delta of 45)
+const float STEER_RATIO = 2; // steering is REDUCED by this amount. (e.g. servo delta of 90 = steering delta of 45)
 
 /* Steer Center DX/DY (abs. distance from origin to wheels)*/
-const u8_t SCDX = 114;
-const u8_t SCDY = 141;
+const float SCDX = 114;
+const float SCDY = 141;
 
 struct MotionVector
 {
@@ -50,79 +52,22 @@ struct MotionVector
 	int aBL;
 	int aBR;
 	MSGPACK_DEFINE(vFL, vFR, vBL, vBR, aFL, aFR, aBL, aBR);
+	MotionVector() = default;
 };
-bool operator==(const MotionVector &lhs, const MotionVector &rhs)
-{
-	return lhs.aFL == rhs.aFL && lhs.aFR == rhs.aFR &&
-			 lhs.aBL == rhs.aBL && lhs.aBR == rhs.aBR &&
-			 lhs.vFL == rhs.vFL && lhs.vFR == rhs.vFR &&
-			 lhs.vBL == rhs.vBL && lhs.vBR == rhs.vBR;
-}
-MotionVector operator+(const MotionVector &lhs, const MotionVector &rhs)
-{
-	MotionVector mvec = {
-		 lhs.aFL + rhs.aFL,
-		 lhs.aFR + rhs.aFR,
-		 lhs.aBL + rhs.aBL,
-		 lhs.aBR + rhs.aBR,
-		 lhs.vFL + rhs.vFL,
-		 lhs.vFR + rhs.vFR,
-		 lhs.vBL + rhs.vBL,
-		 lhs.vBR + rhs.vBR,
-	};
-	return mvec;
-}
-MotionVector operator-(const MotionVector &lhs, const MotionVector &rhs)
-{
-	MotionVector mvec = {
-		 lhs.aFL - rhs.aFL,
-		 lhs.aFR - rhs.aFR,
-		 lhs.aBL - rhs.aBL,
-		 lhs.aBR - rhs.aBR,
-		 lhs.vFL - rhs.vFL,
-		 lhs.vFR - rhs.vFR,
-		 lhs.vBL - rhs.vBL,
-		 lhs.vBR - rhs.vBR,
-	};
-	return mvec;
-}
-// Full multiplication
-MotionVector operator*(const MotionVector &lhs, const float mult)
-{
-	MotionVector mvec = {
-		 lhs.aFL * mult,
-		 lhs.aFR * mult,
-		 lhs.aBL * mult,
-		 lhs.aBR * mult,
-		 lhs.vFL * mult,
-		 lhs.vFR * mult,
-		 lhs.vBL * mult,
-		 lhs.vBR * mult,
-	};
-	return mvec;
-}
-// Angle multiplication
-MotionVector operator%(const MotionVector &lhs, const float mult)
-{
-	MotionVector mvec = {
-		 lhs.aFL * mult,
-		 lhs.aFR * mult,
-		 lhs.aBL * mult,
-		 lhs.aBR * mult,
-		 lhs.vFL,
-		 lhs.vFR,
-		 lhs.vBL,
-		 lhs.vBR,
-	};
-	return mvec;
-}
+bool operator==(const MotionVector &lhs, const MotionVector &rhs);
+MotionVector operator+(const MotionVector &lhs, const MotionVector &rhs);
+MotionVector operator-(const MotionVector &lhs, const MotionVector &rhs);
+MotionVector operator*(const MotionVector &lhs, const float mult);
+MotionVector operator%(const MotionVector &lhs, const float mult);
 
 void PrintPacket(ControlPacket *cmd);
 void PrintStrMsg(char *msg, uint strlen, bool partial, bool overflow);
 
-void CalcSteerCenter(int16_t *d, int16_t *h, int joyx, int joyy);
+void CalcSteerCenter(float *d, float *h, int joyx, int joyy);
 void CalcMotionVector(MotionVector *mvec, ControlPacket *cmd);
-void CalcMotionVector(MotionVector *mvec, int16_t joyx, int16_t joyy, int16_t throttle);
+void CalcMotionVector(MotionVector *mvec, float joyx, float joyy, int16_t throttle);
+
+float ThrottleToFloat(int throttleval);
 
 // MotionVector ProcessPacket(ControlPacket);
 
@@ -134,6 +79,7 @@ typedef void (*StrPacketCallback)(char *msg, uint strlen, bool partial, bool ove
 
 // Parses MsgPack Packets, triggering ControlPacket and String callbacks as appropriate.
 // The user-supplied CmdCallBack and StrCallback recieve a CommandPacket or string respectively
+// SendPacket can be used to send the current target values.
 class PacketHandler
 {
 public:
@@ -145,7 +91,7 @@ public:
 	ControlPacketCallback CmdCallback;
 	StrPacketCallback StrCallback;
 
-	int ParseSerial(u8_t cbuff_start_idx = 0);
+	int ParseSerial(uint8_t cbuff_start_idx = 0);
 	void SendPacket(const ControlPacket *cmd);
 
 	MsgPack::Unpacker unpacker;

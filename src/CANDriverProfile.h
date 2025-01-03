@@ -1,4 +1,7 @@
 #include "SimpleCAN.h"
+#include "rover_config.h"
+
+#define CAN_DEBUG 1
 
 #define CANID_HEARTBEAT    1  //	RTR used to request detailed hearbeat/status from driver or controller. #LATER: determine contents and DLC
 // #define CANID_RTRHEARTBEAT 2 	// 
@@ -9,13 +12,12 @@
 // #define CANID_CD_RTRINT  8       // Request an int from the client
 #define CANID_MISC  9       // Request an int from the client
 
-// Device IDs
-#define DEVID_CONTROLLER 0
-#define DEVID_FL 1
-#define DEVID_FR 2
-#define DEVID_BL 3
-#define DEVID_BR 4
-
+// Device IDs - defined in rover_config.cpp
+extern const uint8_t DEVID_CONTROLLER;
+extern const uint8_t DEVID_FL;
+extern const uint8_t DEVID_FR;
+extern const uint8_t DEVID_BL;
+extern const uint8_t DEVID_BR;
 
 // The CAN ID consists of the 7-bit mesage ID followed by the 4-bit device ID.
 // The device ID is hard-coded into each controller, so arbitration is not currently handled.
@@ -90,12 +92,22 @@ class CANDriver : public SimpleCANProfile {
 			pRxCommands = _pRxCommands;
 		}
 
-		void RequestHeartbeat(int DeviceID)
+		void RequestHeartbeat(const int DeviceID)
 		{
 			Can1->RequestMessage(2, CD_MAKE_CAN_ID(DeviceID, CANID_HEARTBEAT));            
 		}
 
-		void SendVelocityQuad(const int8_t vFL, const int8_t vFR, const int8_t vBL, const int8_t vBR);
+		void SendHeartbeat();
+
+		void SendHeartbeatVerbose();
+
+		// TODO: need 64 bit velocity quad instead?
+		void SendVelocityQuad(const int8_t vFL, const int8_t vFR, const int8_t vBL, const int8_t vBR,  const int CanID)
+		{
+			uint32_t quad = vFL | vFR << 8 | vBL << 16 | vBR << 24;
+			Serial.printf("T~~: quad %d\n", quad);
+			Can1->SendMessage((uint8_t*)&quad, sizeof(quad), CanID);
+		}
 
 		void HandleCanMessage(const SimpleCanRxHeader rxHeader, const uint8_t *rxData);
 
@@ -103,10 +115,11 @@ class CANDriver : public SimpleCANProfile {
 		CANDriverNotifications* pRxCommands;
 };
 
-void CANDriver::SendVelocityQuad(const int8_t vFL, const int8_t vFR, const int8_t vBL, const int8_t vBR)	// IDs 1, 2, 3, 4
-{
-	u32_t quad = vFL | vFR << 8 | vBL << 16 | vBR << 24; // 127 -127 93 -93
-};
+// // CAN DIDs from 0-
+// void CANDriver::SendVelocityQuad(const int8_t vFL, const int8_t vFR, const int8_t vBL, const int8_t vBR)	// IDs 1, 2, 3, 4
+// {
+	
+// };
 
 void CANDriver::HandleCanMessage(const SimpleCanRxHeader rxHeader, const uint8_t *rxData)
 {
@@ -117,15 +130,15 @@ void CANDriver::HandleCanMessage(const SimpleCanRxHeader rxHeader, const uint8_t
 	char Str[MAX_STRLEN];
 	// float val=0;
 	int Device = CD_GET_DEVICE_ID(rxHeader.Identifier);
-	// char buf [32];
-	// char buf2 [64];
-	// utoa(rxHeader.Identifier,buf,2);
-	// // BitStr(rxHeader.Identifier, buf, 32, (Msg.EFF ? 29 : 11), ' ');	// excess bits generated from utoa for some reason? extra '100' at the MSB 
+	char buf [32];
+	char buf2 [64];
+	utoa(rxHeader.Identifier,buf,2);
+	// BitStr(rxHeader.Identifier, buf, 32, (Msg.EFF ? 29 : 11), ' ');	// excess bits generated from utoa for some reason? extra '100' at the MSB 
 
 	// memcpy(&val, rxData, rxHeader.DataLength);
-	// // utoa(val, buf2,2);   // Data conversion to string - this doesn't work for some reason
-	// // Serial.printf("R~ID:%32s (0x%x) DLC=%d Remote?%d EFF?%d\n", buf, rxHeader.Identifier, rxHeader.DataLength, rxHeader.RxFrameType, rxHeader.IdType);
-	// // Serial.printf("\nR~ID:%32s (0x%x) DLC=%d Remote?%d EFF?%d\n data=%64s\n", buf, rxHeader.Identifier, rxHeader.DataLength, rxHeader.RxFrameType, rxHeader.IdType, (rxHeader.RxFrameType ? "~" : buf2)); //rxHeader.RxFrameType ? "~": buf2);
+	// utoa(val, buf2,2);   // Data conversion to string - this doesn't work for some reason
+	Serial.printf("R~ID:%32s (0x%x) DLC=%d Remote?%d EFF?%d\n", buf, rxHeader.Identifier, rxHeader.DataLength, rxHeader.RxFrameType, rxHeader.IdType);
+	// Serial.printf("\nR~ID:%32s (0x%x) DLC=%d Remote?%d EFF?%d\n data=%64s\n", buf, rxHeader.Identifier, rxHeader.DataLength, rxHeader.RxFrameType, rxHeader.IdType, (rxHeader.RxFrameType ? "~" : buf2)); //rxHeader.RxFrameType ? "~": buf2);
 	switch(CD_GET_MESSAGE_ID(rxHeader.Identifier))
 	{
 		int val;
@@ -161,8 +174,8 @@ void CANDriver::HandleCanMessage(const SimpleCanRxHeader rxHeader, const uint8_t
 		default:
 			val = CANGetInt(rxData);
 
-			char buf [32];
-			char buf2 [64];
+			// char buf [32];
+			// char buf2 [64];
 
 			utoa(rxHeader.Identifier,buf,2);
 			utoa(val,buf2,2);
