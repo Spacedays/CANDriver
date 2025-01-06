@@ -34,6 +34,7 @@ int sgn(T val)
 // steering angles are stored as a delta wrt center position (which is 90 degrees)
 const float STEERCTR_D_MIN = 200; // #FIXME steer center dmin value
 const float STEERCTR_SCALING = 200;
+const float STEERANGLE_MIN_RAD = 2*M_PI/180;
 const float STEERANGLE_MAX_RAD = M_PI_4;
 const float STEER_RATIO = 2; // steering is REDUCED by this amount. (e.g. servo delta of 90 = steering delta of 45)
 
@@ -41,6 +42,7 @@ const float STEER_RATIO = 2; // steering is REDUCED by this amount. (e.g. servo 
 const float SCDX = 114;
 const float SCDY = 141;
 
+// Velocity and wheel angles; Positive angles are CCW wrt top view
 struct MotionVector
 {
 	int vFL;

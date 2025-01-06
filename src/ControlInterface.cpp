@@ -16,55 +16,54 @@
 #define D(x)
 #endif // Debug macro
 
-# pragma region MotionVectorOperators
+#pragma region MotionVectorOperators
 bool operator==(const MotionVector &lhs, const MotionVector &rhs)
 {
 	return lhs.aFL == rhs.aFL && lhs.aFR == rhs.aFR &&
-			 lhs.aBL == rhs.aBL && lhs.aBR == rhs.aBR &&
-			 lhs.vFL == rhs.vFL && lhs.vFR == rhs.vFR &&
-			 lhs.vBL == rhs.vBL && lhs.vBR == rhs.vBR;
+		   lhs.aBL == rhs.aBL && lhs.aBR == rhs.aBR &&
+		   lhs.vFL == rhs.vFL && lhs.vFR == rhs.vFR &&
+		   lhs.vBL == rhs.vBL && lhs.vBR == rhs.vBR;
 }
 MotionVector operator+(const MotionVector &lhs, const MotionVector &rhs)
 {
 	MotionVector mvec = {
-		 lhs.aFL + rhs.aFL,
-		 lhs.aFR + rhs.aFR,
-		 lhs.aBL + rhs.aBL,
-		 lhs.aBR + rhs.aBR,
-		 lhs.vFL + rhs.vFL,
-		 lhs.vFR + rhs.vFR,
-		 lhs.vBL + rhs.vBL,
-		 lhs.vBR + rhs.vBR,
+		lhs.aFL + rhs.aFL,
+		lhs.aFR + rhs.aFR,
+		lhs.aBL + rhs.aBL,
+		lhs.aBR + rhs.aBR,
+		lhs.vFL + rhs.vFL,
+		lhs.vFR + rhs.vFR,
+		lhs.vBL + rhs.vBL,
+		lhs.vBR + rhs.vBR,
 	};
 	return mvec;
 }
 MotionVector operator-(const MotionVector &lhs, const MotionVector &rhs)
 {
 	MotionVector mvec = {
-		 lhs.aFL - rhs.aFL,
-		 lhs.aFR - rhs.aFR,
-		 lhs.aBL - rhs.aBL,
-		 lhs.aBR - rhs.aBR,
-		 lhs.vFL - rhs.vFL,
-		 lhs.vFR - rhs.vFR,
-		 lhs.vBL - rhs.vBL,
-		 lhs.vBR - rhs.vBR,
+		lhs.aFL - rhs.aFL,
+		lhs.aFR - rhs.aFR,
+		lhs.aBL - rhs.aBL,
+		lhs.aBR - rhs.aBR,
+		lhs.vFL - rhs.vFL,
+		lhs.vFR - rhs.vFR,
+		lhs.vBL - rhs.vBL,
+		lhs.vBR - rhs.vBR,
 	};
 	return mvec;
 }
-//TODO: confirm float precision isn't necessary in motion vector
-// Full multiplication
+//  Full multiplication
 MotionVector operator*(const MotionVector &lhs, const float mult)
 {
 	MotionVector mvec = {
-		 lhs.aFL * mult,
-		 lhs.aFR * mult,
-		 lhs.aBL * mult,
-		 lhs.aBR * mult,
-		 lhs.vFL * mult,
-		 lhs.vFR * mult,
-		 lhs.vBL * mult,
-		 lhs.vBR * mult,
+		int(float(lhs.aFL) * mult),
+		int(float(lhs.aFR) * mult),
+		int(float(lhs.aBL) * mult),
+		int(float(lhs.aBR) * mult),
+		int(float(lhs.vFL) * mult),
+		int(float(lhs.vFR) * mult),
+		int(float(lhs.vBL) * mult),
+		int(float(lhs.vBR) * mult),
 	};
 	return mvec;
 }
@@ -72,25 +71,36 @@ MotionVector operator*(const MotionVector &lhs, const float mult)
 MotionVector operator%(const MotionVector &lhs, const float mult)
 {
 	MotionVector mvec = {
-		 lhs.aFL * mult,
-		 lhs.aFR * mult,
-		 lhs.aBL * mult,
-		 lhs.aBR * mult,
-		 lhs.vFL,
-		 lhs.vFR,
-		 lhs.vBL,
-		 lhs.vBR,
+		int(float(lhs.aFL) * mult),
+		int(float(lhs.aFR) * mult),
+		int(float(lhs.aBL) * mult),
+		int(float(lhs.aBR) * mult),
+		lhs.vFL,
+		lhs.vFR,
+		lhs.vBL,
+		lhs.vBR,
 	};
 	return mvec;
 }
-# pragma endregion MotionVectorOperators
+#pragma endregion MotionVectorOperators
 
 void CalcSteerCenter(float *d, float *h, int joyx, int joyy)
 {
-	// sgn(joyx)*STEERCTR_D_MIN + STEERCTR_SCALING * atan2(JOY_MAX, joyx*M_PI_2);
-	*d = float(sgn(joyx)) * STEERCTR_D_MIN + STEERCTR_SCALING * tan(float(abs(joyx)) / float(JOY_MAX) * M_PI_2 - M_PI_2);
-	// hmax = (abs(d) - STEERCTR_D_MIN)*tan(STEERANGLE_MAX_RAD)
-	*h = float(joyy) / float(JOY_MAX) * (float(abs(*d)) - STEERCTR_D_MIN) * tan(STEERANGLE_MAX_RAD);
+	// jx scales the angle of the front right wheel while assuming h=0
+	// jy is multipied by the max height (limited by steering angle) at the given distance
+
+	float jx = float(joyx) / float(JOY_MAX);
+	float jy = float(joyy) / float(JOY_MAX);
+	if (abs(jx * STEERANGLE_MAX_RAD) < STEERANGLE_MIN_RAD)
+	{
+		*d = 0;
+		*h = 0;
+		return;
+	}
+	*d = sgn(joyx) * SCDX + SCDY / tan(jx * STEERANGLE_MAX_RAD);
+	// d_min = SCDX + SCDY * tan(STEERANGLE_MAX_RAD)
+	// h_max = (abs(d)-d_min)  / tan(STEERANGLE_MAX_RAD)
+	*h = -jy * (abs(*d) - (SCDX + SCDY * tan(STEERANGLE_MAX_RAD))) * tan(STEERANGLE_MAX_RAD);
 }
 
 const float RAD2DEG = 180 / PI;
@@ -104,15 +114,15 @@ void CalcMotionVector(MotionVector *mvec, ControlPacket *cmd)
 //
 void CalcMotionVector(MotionVector *mvec, float d, float h, int16_t throttle = 0)
 {
-	int SCdist[4] = {sqrt(sq(SCDY - h) + sq(-SCDX - d)),
-						  sqrt(sq(SCDY - h) + sq(SCDX - d)),
-						  sqrt(sq(-SCDY - h) + sq(-SCDX - d)),
-						  sqrt(sq(-SCDY - h) + sq(SCDX - d))};
-	mvec->aFL = int(atan((SCDY - h) / (-SCDX - d)) * RAD2DEG);
-	mvec->aFR = int(atan((SCDY - h) / (SCDX - d)) * RAD2DEG);
-	mvec->aBL = int(atan((-SCDY - h) / (-SCDX - d)) * RAD2DEG);
-	mvec->aBR = int(atan((-SCDY - h) / (SCDX - d)) * RAD2DEG);
-	int m = max(max(SCdist[0], SCdist[1]), max(SCdist[2], SCdist[3]));
+	float SCdist[4] = {sqrt(sq(d + SCDX) + sq(h - SCDY)),
+					   sqrt(sq(d - SCDX) + sq(h - SCDY)),
+					   sqrt(sq(d + SCDX) + sq(h + SCDY)),
+					   sqrt(sq(d - SCDX) + sq(h + SCDY))};
+	mvec->aFL = int(atan((h - SCDY) / (d + SCDX)) * RAD2DEG);
+	mvec->aFR = int(atan((h - SCDY) / (d - SCDX)) * RAD2DEG);
+	mvec->aBL = int(atan((h + SCDY) / (d + SCDX)) * RAD2DEG);
+	mvec->aBR = int(atan((h + SCDY) / (d - SCDX)) * RAD2DEG);
+	float m = max(max(SCdist[0], SCdist[1]), max(SCdist[2], SCdist[3]));
 
 	mvec->vFL = int(SCdist[0] / m * float(throttle));
 	mvec->vFR = int(SCdist[1] / m * float(throttle));
@@ -125,7 +135,7 @@ float ThrottleToFloat(int throttleval)
 	return float(throttleval) * RT_MAX;
 }
 
-# pragma region MsgPackHandler
+#pragma region MsgPackHandler
 /* --- MsgPackHandler --- */
 PacketHandler::PacketHandler(ControlPacketCallback cmdcb, StrPacketCallback strcb)
 {
@@ -217,7 +227,7 @@ int PacketHandler::ParseSerial(const uint8_t cbuff_start_idx)
 				}
 				unpacker.clear();
 				Serial.println(F("\r\n!Failed to deserialize!\r"));
-				return -3;	// data could not be deserialized
+				return -3; // data could not be deserialized
 			}
 			else // Received terminated string message, more data is still in rx queue
 				partial = false;
@@ -275,7 +285,7 @@ void PrintPacket(ControlPacket *cmd)
 	Serial.printf("CP: (%d,%d) %d (%d,%d) %s\n", cp.a, cp.b, cp.rt, cp.ljx, cp.ljy, cp.s);
 };
 
-# pragma endregion MsgPackHandler
+#pragma endregion MsgPackHandler
 
 /* --- Test Code for controls --- */
 

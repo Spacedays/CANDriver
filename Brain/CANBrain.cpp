@@ -271,8 +271,8 @@ void handlePacket(RoverState *rover, const ControlPacket *cmd)
 	MotionVector veccp = rover->driveVec;	// just for printing in case the motion vector gets overwritten while printing
 	rover->Update();	// Calc next motor values
 	
-	Serial.printf("SC: (%4f,%4f)\n", d, h);
-	Serial.printf("FL:%5d | %4d  FR: %5d | %4d  BL:%5d | %4d  BR: %5d %4d\n", veccp.vFL, veccp.aFL, veccp.vFR, veccp.aFR, veccp.vBL, veccp.aBL, veccp.vBR, veccp.aBR);
+	// Serial.printf("SC: (%4f,%4f)\n", d, h);
+	// Serial.printf("FL:%5d | %4d  FR: %5d | %4d  BL:%5d | %4d  BR: %5d %4d\n", veccp.vFL, veccp.aFL, veccp.vFR, veccp.aFR, veccp.vBL, veccp.aBL, veccp.vBR, veccp.aBR);
 	handler.prevCmd = *cmd;	// TODO: get rid of or encapsulate reference to handler
 }
 
